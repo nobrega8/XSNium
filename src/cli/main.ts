@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { XsnError, openXsn } from "../index.ts";
+import { XsnError, openXsn, readManifest } from "../index.ts";
 
 const USAGE = `Usage:
   infopath inspect <form.xsn>            List package contents and diagnostics
@@ -14,7 +14,18 @@ function inspect(file: string): number {
   for (const e of pkg.entries) {
     console.log(`  ${e.name.padEnd(width)}  ${String(e.size).padStart(9)}  ${e.kind}`);
   }
-  for (const d of pkg.diagnostics) console.log(`[${d.category}] ${d.level}: ${d.message}`);
+  const diagnostics = [...pkg.diagnostics];
+  if (pkg.manifest) {
+    const { manifest, diagnostics: manifestDiagnostics } = readManifest(pkg);
+    diagnostics.push(...manifestDiagnostics);
+    console.log(`[MANIFEST] version ${manifest.solutionVersion ?? "?"}, format ${manifest.formatVersion ?? "?"}`);
+    console.log(`[SCHEMA] ${manifest.schemas.length} schema(s): ${manifest.schemas.map((s) => s.file).join(", ")}`);
+    console.log(`[VIEW] ${manifest.views.length} view(s), default: ${manifest.defaultView ?? "(none)"}`);
+    for (const v of manifest.views) console.log(`  ${v.name} -> ${v.file ?? "(no file)"} (${v.bindings.length} bindings)`);
+    console.log(`[CONNECTION] ${manifest.dataAdapters.length} data adapter(s)`);
+    for (const f of manifest.features) console.log(`[FEATURE] ${f.support}: ${f.feature}${f.detail ? ` (${f.detail})` : ""}`);
+  }
+  for (const d of diagnostics) console.log(`[${d.category}] ${d.level}: ${d.message}`);
   return pkg.manifest ? 0 : 1;
 }
 
