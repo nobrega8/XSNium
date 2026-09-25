@@ -36,7 +36,10 @@ writeFileSync(
 execFileSync(process.execPath, ["--experimental-sea-config", path.join(out, "sea-config.json")], { stdio: "inherit" });
 
 copyFileSync(process.execPath, exe);
+// macOS refuses to run a modified binary that still carries the original signature.
+if (process.platform === "darwin") execFileSync("codesign", ["--remove-signature", exe]);
 const args = ["postject", exe, "NODE_SEA_BLOB", path.join(out, "sea-prep.blob"), "--sentinel-fuse", "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"];
 if (process.platform === "darwin") args.push("--macho-segment-name", "NODE_SEA");
 execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--yes", ...args], { stdio: "inherit", shell: process.platform === "win32" });
+if (process.platform === "darwin") execFileSync("codesign", ["--sign", "-", exe]);
 console.log(`Built ${exe}`);
