@@ -161,6 +161,8 @@ The end-to-end tests in `tests/e2e/` drive the web UI in a real browser with Pla
 
 Tests cover the package reader, manifest, schema, view and form builders, the data model, the rendering engine and the local server, plus malformed and hostile inputs (truncated cabinets, path traversal, decompression bombs, XXE, billion laughs, schema and view expansion bombs, forged `Host` and `Origin` headers).
 
+`tests/security/fuzz.test.ts` fuzzes the readers: seeded random damage to packages, XML, XPath expressions, styles and attachments must only ever produce a reported `XsnError`, quickly. It is deterministic and short by default; for a deeper run use `FUZZ_ROUNDS=4000 npm test`.
+
 Tests that use real-world templates read `.xsn` files from `example_files/`. That folder is git-ignored because real forms often contain company data, and those tests are skipped when it is empty. Never commit real templates; use sanitised or synthetic fixtures instead (see [Contributing](#contributing)).
 
 ## References
