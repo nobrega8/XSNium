@@ -10,6 +10,8 @@ const statusEl = $("status");
 
 let state = { loaded: false };
 let currentView = null;
+// Whether editing a value can change what the view shows (conditional sections); set by each redraw.
+let dynamicView = false;
 
 // Original layout follows the look the form was designed with; modern layout is the plain responsive one.
 let original = true;
@@ -97,7 +99,7 @@ async function applyOutcome(outcome, { structure = false, edited } = {}) {
   for (const [path, value] of Object.entries(outcome.values ?? {})) {
     if (path !== edited) patchValue(path, value);
   }
-  if (structure) await refresh();
+  if (structure || dynamicView) await refresh();
   else await validate();
   const issue = (outcome.issues ?? []).find((i) => i.level === "error") ?? (outcome.issues ?? []).find((i) => i.level === "warning");
   if (issue) say(issue.message, issue.level === "error");
@@ -572,6 +574,7 @@ async function refresh() {
 
   const res = await api("GET", `/api/view?name=${encodeURIComponent(currentView ?? "")}`);
   const view = await res.json();
+  dynamicView = view.dynamic === true;
   const page = el("div", original ? "page original" : "page");
   let host = page;
   if (original) {

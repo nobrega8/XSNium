@@ -34,6 +34,8 @@ describe("expandView", () => {
     assert.deepEqual(shown(), ["a", "c", "d"]);
     inst.setValue(`${ROOT}/my:title`, "Other");
     assert.deepEqual(shown(), ["b", "d"]);
+    assert.equal(expandView(view([cond("a", [when("true()")])]), inst).dynamic, true);
+    assert.equal(expandView(view([label("z")]), inst).dynamic, undefined);
   });
 
   it("marks missing nodes and shows them empty instead of failing", () => {

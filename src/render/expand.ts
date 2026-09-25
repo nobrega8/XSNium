@@ -47,6 +47,8 @@ export interface RenderedView {
   css?: string;
   /** Width the view was designed for. */
   width?: string;
+  /** Some content is shown or hidden by the values in the data, so editing any value can change what is drawn. */
+  dynamic?: boolean;
 }
 
 const MAX_RENDER_NODES = 500_000;
@@ -63,6 +65,8 @@ class Expander {
   private readonly instance: FormInstance;
   private readonly subs: Substitution[] = [];
   private count = 0;
+  /** Set when a conditional was decided by evaluating a test on the data. */
+  dynamic = false;
 
   constructor(instance: FormInstance) {
     this.instance = instance;
@@ -84,6 +88,7 @@ class Expander {
   /** Conditional content is inlined while its node exists (or does not, if negated) and dropped otherwise. */
   private nodeOrInline(c: ControlDefinition, suffix: string): RenderNode[] {
     if (c.type !== "conditional") return [this.node(c, suffix)];
+    if (Array.isArray(c.properties["all"])) this.dynamic = true;
     if (Array.isArray(c.properties["all"])) return this.holds(c) ? this.nodes(c.children ?? [], suffix) : [];
     const path = typeof c.properties["path"] === "string" ? this.concretize(c.properties["path"]) : undefined;
     let exists = false;
@@ -203,9 +208,12 @@ class Expander {
 
 /** Expand one view against the current data. */
 export function expandView(view: ViewDefinition, instance: FormInstance): RenderedView {
+  const expander = new Expander(instance);
+  const nodes = expander.nodes(view.controls, "");
   return {
     name: view.name,
-    nodes: new Expander(instance).nodes(view.controls, ""),
+    nodes,
+    ...(expander.dynamic ? { dynamic: true } : {}),
     ...(view.css !== undefined ? { css: view.css } : {}),
     ...(view.width !== undefined ? { width: view.width } : {}),
   };

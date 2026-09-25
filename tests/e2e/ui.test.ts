@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
 import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
+import { condXsnBytes } from "../helpers/cond-form.ts";
 import { PILOTS_XML, secondaryXsnBytes } from "../helpers/secondary-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
@@ -384,6 +385,26 @@ describe("secondary data in a real browser", () => {
     await page.selectOption(".page select", "2");
     await page.waitForFunction(() => (document.querySelector(".page select") as HTMLSelectElement).value === "2");
     assert.match(await page.locator("#compat").innerText(), /Pilots: loaded/);
+    assert.deepEqual(errors, []);
+  });
+});
+
+describe("conditional content in a real browser", () => {
+  it("shows and hides parts of the form as the values change, keeping focus", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await page.setInputFiles("#open-form", { name: "cond.xsn", mimeType: "application/octet-stream", buffer: condXsnBytes() });
+    await page.waitForSelector(".page input");
+    assert.match(await page.locator(".page").innerText(), /Nothing more is needed/);
+    assert.equal(await page.locator(".page input").count(), 1);
+    await page.locator(".page input").first().fill("B");
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => document.querySelectorAll(".page input").length === 2);
+    assert.match(await page.locator(".page").innerText(), /Details for B/);
+    assert.doesNotMatch(await page.locator(".page").innerText(), /Nothing more is needed/);
+    await page.locator(".page input").first().fill("C");
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => document.querySelectorAll(".page input").length === 1);
+    assert.match(await page.locator(".page").innerText(), /Nothing more is needed/);
     assert.deepEqual(errors, []);
   });
 });
