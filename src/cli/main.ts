@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { XsnError, openXsn, readManifest } from "../index.ts";
+import { XsnError, buildFormDefinition, openXsn, readManifest } from "../index.ts";
 
 const USAGE = `Usage:
   openforms inspect <form.xsn>            List package contents and diagnostics
+  openforms model <form.xsn>             Print the internal form definition summary as JSON
   openforms extract <form.xsn> <outdir>   Extract the package (original is never modified)
 `;
 
@@ -29,6 +30,24 @@ function inspect(file: string): number {
   return pkg.manifest ? 0 : 1;
 }
 
+function model(file: string): number {
+  const form = buildFormDefinition(openXsn(file));
+  // The schema tree can be large; the summary reports its size instead of dumping it.
+  const summary = {
+    ...form,
+    dataSources: form.dataSources.map(({ schema, ...rest }) => ({ ...rest, ...(schema ? { schemaRoot: schema.name } : {}) })),
+    validations: { count: form.validations.length, byType: countBy(form.validations.map((v) => v.type)) },
+  };
+  console.log(JSON.stringify(summary, null, 2));
+  return 0;
+}
+
+function countBy(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const v of values) counts[v] = (counts[v] ?? 0) + 1;
+  return counts;
+}
+
 function extract(file: string, outDir: string): number {
   const written = openXsn(file).extractTo(outDir);
   console.log(`[PACKAGE] extracted ${written.length} files to ${outDir}`);
@@ -39,6 +58,7 @@ function main(argv: string[]): number {
   const [command, file, outDir] = argv;
   try {
     if (command === "inspect" && file) return inspect(file);
+    if (command === "model" && file) return model(file);
     if (command === "extract" && file && outDir) return extract(file, outDir);
   } catch (err) {
     if (err instanceof XsnError) {

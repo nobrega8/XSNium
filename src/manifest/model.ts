@@ -60,6 +60,11 @@ export interface DetectedFeature {
   detail?: string;
 }
 
+export interface ManifestNamespace {
+  prefix: string;
+  uri: string;
+}
+
 export interface ManifestModel {
   formName: string | undefined;
   solutionVersion: string | undefined;
@@ -68,10 +73,14 @@ export interface ManifestModel {
   trustLevel: string | undefined;
   /** True when the template records a location it was published to. The value itself is not retained. */
   hasPublishLocation: boolean;
+  /** Prefixes declared on the manifest root; used by binding and calculation XPaths. */
+  namespaces: ManifestNamespace[];
   files: ManifestFile[];
   schemas: ManifestSchema[];
   /** Package file used as the initial data document. */
   initialDocument: string | undefined;
+  /** Human-readable form name from the initial document declaration. */
+  caption: string | undefined;
   views: ManifestView[];
   defaultView: string | undefined;
   calculations: ManifestCalculation[];

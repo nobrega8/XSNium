@@ -10,3 +10,5 @@ export { readManifest } from "./manifest/read.ts";
 export { buildSchemaModel } from "./schema/parser.ts";
 export { readSchema } from "./schema/read.ts";
 export type * from "./schema/model.ts";
+export { buildFormDefinition, mimeTypeOf } from "./form/build.ts";
+export type * from "./form/model.ts";
