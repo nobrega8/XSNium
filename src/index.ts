@@ -19,3 +19,5 @@ export { parsePath } from "./data/path.ts";
 export type { DataNode, ParsedPath, PathStep } from "./data/path.ts";
 export { expandView } from "./render/expand.ts";
 export type { RenderNode, RenderRow, RenderedView } from "./render/expand.ts";
+export { FormRuntime } from "./runtime/runtime.ts";
+export type { Outcome, RuntimeEvent, RuntimeIssue, RuntimeOptions, ValidationIssue } from "./runtime/runtime.ts";

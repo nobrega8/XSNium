@@ -65,6 +65,11 @@ export class FormInstance {
     return instructionAttributes(this.document, "mso-infoPathSolution")["solutionVersion"];
   }
 
+  /** Namespace prefixes as this form's paths and expressions use them. */
+  get namespaceResolver(): NamespaceResolver {
+    return this.resolve;
+  }
+
   private readonly resolve: NamespaceResolver = (prefix) => {
     // Prefixes declared in the data document win over the template's, matching XPath semantics.
     for (const d of this.document.root.declarations) if (d.prefix === prefix) return d.uri;
@@ -97,6 +102,29 @@ export class FormInstance {
     }
     if (target.kind !== "element") throw new XsnError("INVALID_OPERATION", "Cannot set the value of the document node");
     this.setElementValue(target.el, value);
+  }
+
+  /** Set the value of a node that has already been selected (used when one path selects several nodes). */
+  setNodeValue(node: DataNode, value: string): void {
+    if (node.kind === "attribute") node.attr.value = value;
+    else if (node.kind === "element") this.setElementValue(node.el, value);
+    else throw new XsnError("INVALID_OPERATION", "Cannot set the value of the document node");
+  }
+
+  /**
+   * Absolute path of an element in the form's own prefixes, with a position on every step that can repeat.
+   * It is the address the rendering engine and the API use for that element.
+   */
+  concretePath(el: DataElement): string {
+    const steps: string[] = [];
+    for (let cur: DataElement | undefined = el; cur; cur = cur.parent) {
+      const prefix = this.prefixByUri.get(cur.ns);
+      const name = prefix ? `${prefix}:${cur.local}` : cur.local;
+      const same = cur.parent ? elementChildren(cur.parent).filter((c) => c.ns === cur!.ns && c.local === cur!.local) : [cur];
+      const repeats = same.length > 1 || this.schemaNodeOf(cur)?.repeating === true;
+      steps.unshift(repeats ? `${name}[${same.indexOf(cur) + 1}]` : name);
+    }
+    return `/${steps.join("/")}`;
   }
 
   private setElementValue(el: DataElement, value: string): void {
