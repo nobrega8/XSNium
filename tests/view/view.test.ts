@@ -153,6 +153,40 @@ describe("structure and data context", () => {
   });
 });
 
+describe("constructs seen in real templates", () => {
+  it("reads choice groups and their alternatives", () => {
+    const { controls } = parse(
+      `<div xd:xctname="choicegroup" xd:ref="/my:root/my:choice"><div><xsl:apply-templates select="my:choice/my:a" mode="_a"/></div><div><xsl:apply-templates select="my:choice/my:b" mode="_b"/></div></div>`,
+      `<xsl:template match="my:a" mode="_a"><div xd:xctname="choiceterm" xd:CtrlId="A"><span xd:xctname="PlainText" xd:CtrlId="PA" xd:binding="my:x"/></div></xsl:template>
+       <xsl:template match="my:b" mode="_b"><div xd:xctname="choiceterm" xd:CtrlId="B"/></xsl:template>`,
+    );
+    const group = controls[0]!;
+    assert.deepEqual([group.type, group.binding], ["choiceGroup", "/my:root/my:choice"]);
+    assert.deepEqual(group.children!.map((c) => [c.id, c.type, c.properties["choice"], c.binding]), [
+      ["A", "section", true, "/my:root/my:choice/my:a"],
+      ["B", "section", true, "/my:root/my:choice/my:b"],
+    ]);
+    assert.equal(ofType(controls, "text")[0]?.binding, "/my:root/my:choice/my:a/my:x");
+  });
+
+  it("treats the blank dropdown entry as an empty value, not its caption", () => {
+    const { controls } = parse(`<select xd:xctname="dropdown" xd:CtrlId="D" xd:binding="my:pick"><option>Select...</option><option value="a"><xsl:if test="my:pick=&quot;a&quot;"><xsl:attribute name="selected">selected</xsl:attribute></xsl:if>Alpha</option></select>`);
+    assert.deepEqual(controls[0]?.properties["options"], [{ value: "", label: "Select..." }, { value: "a", label: "Alpha" }]);
+  });
+
+  it("records dropdowns whose options come from another data source", () => {
+    const r = parse(`<select xd:xctname="dropdown" xd:CtrlId="D" xd:binding="my:pick"><xsl:choose><xsl:when test="function-available('xdXDocument:GetDOM')"><option/>
+      <xsl:for-each select="xdXDocument:GetDOM(&quot;Pilot Names&quot;)/dfs:myFields/dfs:dataFields/d:item"><option/></xsl:for-each></xsl:when></xsl:choose></select>`);
+    assert.deepEqual(r.controls[0]?.properties["optionsSource"], { dataSource: "Pilot Names" });
+    assert.ok(r.diagnostics.some((d) => /Pilot Names/.test(d.message)));
+  });
+
+  it("recognises hyperlink and file attachment controls", () => {
+    const { controls } = parse(`<span xd:xctname="hyperlinkbox" xd:CtrlId="H" xd:binding="my:link"/><span xd:xctname="fileattachment" xd:CtrlId="F" xd:binding="my:file"/>`);
+    assert.deepEqual(controls.map((c) => [c.type, c.binding]), [["hyperlink", "/my:root/my:link"], ["fileAttachment", "/my:root/my:file"]]);
+  });
+});
+
 describe("safety", () => {
   it("rejects DTDs and non-stylesheets", () => {
     assert.throws(() => parseView(`<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><xsl:stylesheet ${NS}/>`, { rootPath: "/my:root" }), { code: "MALFORMED" });

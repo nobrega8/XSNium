@@ -344,6 +344,13 @@ class ViewBuilder {
       case "section":
       case "optionalsection":
         return [this.make("section", { binding: ctx, properties: name === "optionalsection" ? { optional: true } : {}, children: this.container(el, ctx, depth) }, id)];
+      case "choicegroup": {
+        const ref = xdAttr(el, "ref");
+        const binding = (ref !== undefined ? joinPath(ctx, ref) : undefined) ?? ctx;
+        return [this.make("choiceGroup", { binding, children: this.container(el, ctx, depth) }, id)];
+      }
+      case "choiceterm":
+        return [this.make("section", { binding: ctx, properties: { choice: true }, children: this.container(el, ctx, depth) }, id)];
       case "repeatingsection":
       case "repeatingsectionwithcontrols":
         return [this.make("repeatingSection", { binding: ctx, children: this.container(el, ctx, depth) }, id)];
@@ -392,6 +399,11 @@ class ViewBuilder {
         const options = this.optionsOf(el);
         const type: ControlType = name === "dropdown" || name === "combobox" ? "dropdown" : "list";
         const properties: Record<string, unknown> = { options };
+        const source = this.optionsSource(el);
+        if (source !== undefined) {
+          properties["optionsSource"] = { dataSource: source };
+          this.diagnostics.push({ level: "warning", message: `Options of "${b.binding ?? id ?? name}" come from the data source "${source}", which is not loaded` });
+        }
         if (name === "combobox") properties["editable"] = true;
         if (name === "multipleselectionlistbox") properties["multiple"] = true;
         return [this.make(type, { ...(b.binding ? { binding: b.binding } : {}), properties }, id)];
@@ -400,7 +412,16 @@ class ViewBuilder {
       case "picturebutton": {
         const action = xdAttr(el, "action");
         const caption = el.attrs["value"] ?? textOf(el);
-        return [this.make("button", { label: caption, properties: action ? { action } : {} }, id)];
+        // `context` is the data node the button sits in; rules it runs resolve relative paths against it.
+        return [this.make("button", { label: caption, properties: { context: ctx, ...(action ? { action } : {}) } }, id)];
+      }
+      case "hyperlinkbox": {
+        const b = this.bound(el, ctx);
+        return [this.make("hyperlink", { ...(b.binding ? { binding: b.binding } : {}) }, id)];
+      }
+      case "fileattachment": {
+        const b = this.bound(el, ctx);
+        return [this.make("fileAttachment", { ...(b.binding ? { binding: b.binding } : {}) }, id)];
       }
       case "inlineimage":
       case "linkedimage": {
@@ -414,13 +435,30 @@ class ViewBuilder {
     }
   }
 
+  /** Name of the secondary data source a dropdown draws its options from, if any. */
+  private optionsSource(el: XmlElement): string | undefined {
+    const stack = [...el.children];
+    while (stack.length > 0) {
+      const next = stack.pop()!;
+      if (isXsl(next)) {
+        for (const value of Object.values(next.attrs)) {
+          const m = /GetDOM\(\s*["']([^"']+)["']\s*\)/.exec(value);
+          if (m) return m[1];
+        }
+      }
+      stack.push(...next.children);
+    }
+    return undefined;
+  }
+
   private optionsOf(el: XmlElement): { value: string; label: string }[] {
     const found: { value: string; label: string }[] = [];
     const visit = (e: XmlElement) => {
       for (const c of e.children) {
         if (!isXsl(c) && c.local.toLowerCase() === "option") {
           const label = textOf(c);
-          const value = c.attrs["value"] ?? label;
+          // InfoPath writes the blank "Select..." entry without a value: it means empty, not its caption.
+          const value = c.attrs["value"] ?? "";
           if (value !== "" || label !== "") found.push({ value, label });
         } else visit(c);
       }
