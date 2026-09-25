@@ -207,6 +207,16 @@ If you have forms whose look matters, reference screenshots from InfoPath (with 
 
 Contributions are welcome: bug reports, sanitised test forms, new control or rule support, documentation and fixes. The project is early, so **please open an issue before starting anything larger than a small fix**, so the direction can be agreed first. The design lives in [plan.md](plan.md), and it is worth reading the architecture rules there before writing code.
 
+### Contributors
+
+Everyone who has contributed code to XSNium:
+
+<a href="https://github.com/nobrega8/XSNium/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=nobrega8/XSNium" alt="Contributors to XSNium" />
+</a>
+
+The picture is generated from the repository's commit history, so it updates by itself when a pull request is merged.
+
 ### Ways to help
 
 - **Try your own forms and report what breaks.** Run `xsnium inspect` and `xsnium model` on a template and open an issue with what looks wrong. Include the `inspect` output, which lists detected features, rather than the form itself.
