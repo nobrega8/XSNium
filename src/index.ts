@@ -17,3 +17,5 @@ export { parseDataDocument, serializeDataDocument } from "./data/document.ts";
 export type { DataDocument, DataElement, DataAttribute } from "./data/document.ts";
 export { parsePath } from "./data/path.ts";
 export type { DataNode, ParsedPath, PathStep } from "./data/path.ts";
+export { expandView } from "./render/expand.ts";
+export type { RenderNode, RenderRow, RenderedView } from "./render/expand.ts";

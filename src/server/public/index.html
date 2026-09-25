@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="xsnium-token" content="__TOKEN__">
+  <title>XSNium</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="toolbar">
+    <span class="brand">XSNium</span>
+    <label class="button">Open form<input id="open-form" type="file" accept=".xsn" hidden></label>
+    <label class="button" id="open-data-label">Open data<input id="open-data" type="file" accept=".xml" hidden></label>
+    <button id="new-data" type="button">New</button>
+    <button id="save" type="button">Save XML</button>
+    <label id="view-label">View <select id="view-select"></select></label>
+    <button id="compat-toggle" type="button">Compatibility</button>
+    <span id="status" role="status"></span>
+  </header>
+  <aside id="compat" hidden></aside>
+  <main id="stage">
+    <p class="empty">Open an InfoPath form template (.xsn) to start. Files stay on this computer.</p>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

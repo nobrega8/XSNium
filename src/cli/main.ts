@@ -1,9 +1,13 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { startServer } from "../server/server.ts";
 import { XsnError, buildFormDefinition, openXsn, readManifest, type ControlDefinition } from "../index.ts";
 
 const USAGE = `Usage:
   xsnium inspect <form.xsn>            List package contents and diagnostics
   xsnium model <form.xsn>             Print the internal form definition summary as JSON
+  xsnium serve [form.xsn] [--port N] [--open]
+                                          Fill in forms in the browser (local only, 127.0.0.1)
   xsnium extract <form.xsn> <outdir>   Extract the package (original is never modified)
 `;
 
@@ -57,17 +61,47 @@ function countBy(values: string[]): Record<string, number> {
   return counts;
 }
 
+async function serve(args: string[]): Promise<number> {
+  let file: string | undefined;
+  let port = 0;
+  let openBrowser = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--port") port = Number(args[++i]);
+    else if (a === "--open") openBrowser = true;
+    else if (!a.startsWith("--") && file === undefined) file = a;
+    else return 64;
+  }
+  if (!Number.isInteger(port) || port < 0 || port > 65535) return 64;
+
+  const running = await startServer({ port, ...(file !== undefined ? { file } : {}) });
+  console.log(`XSNium is running at ${running.url}`);
+  console.log("Only this computer can reach it. Press Ctrl+C to stop.");
+  if (openBrowser) {
+    const [cmd, cmdArgs]: [string, string[]] =
+      process.platform === "win32" ? ["cmd", ["/c", "start", "", running.url]] : process.platform === "darwin" ? ["open", [running.url]] : ["xdg-open", [running.url]];
+    spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).unref();
+  }
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
+  });
+  await running.close();
+  return 0;
+}
+
 function extract(file: string, outDir: string): number {
   const written = openXsn(file).extractTo(outDir);
   console.log(`[PACKAGE] extracted ${written.length} files to ${outDir}`);
   return 0;
 }
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const [command, file, outDir] = argv;
   try {
     if (command === "inspect" && file) return inspect(file);
     if (command === "model" && file) return model(file);
+    if (command === "serve") return await serve(argv.slice(1));
     if (command === "extract" && file && outDir) return extract(file, outDir);
   } catch (err) {
     if (err instanceof XsnError) {
@@ -80,4 +114,4 @@ function main(argv: string[]): number {
   return 64;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));
