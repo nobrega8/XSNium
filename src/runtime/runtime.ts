@@ -1,9 +1,11 @@
 import type { FormInstance } from "../data/instance.ts";
+import type { DataDocument } from "../data/document.ts";
+import { parseDataDocument } from "../data/document.ts";
 import type { DataNode } from "../data/path.ts";
 import type { FormDefinition, RuleAction, RuleDefinition, ValidationDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { evaluateXPath, selectXPath, type XPathEnv } from "../xpath/evaluator.ts";
-import { attributeNode, elementNode, stringValue, toBoolean, toStringValue, type Value, type XNode } from "../xpath/nodes.ts";
+import { attributeNode, documentNode, elementNode, stringValue, toBoolean, toStringValue, type Value, type XNode } from "../xpath/nodes.ts";
 import { MAX_BLOB_BYTES, buildAttachment, decodeBase64, describeBlob, encodeBase64, isDangerousFileName, parseAttachment, safeAttachmentName, sniffImage, IMAGE_MIME, type BlobInfo } from "../data/blobs.ts";
 import { checkPattern, checkType, digitCounts, isDateType, isNumericType } from "./validate.ts";
 
@@ -63,6 +65,8 @@ function toData(n: XNode): DataNode | undefined {
   return undefined;
 }
 
+const MAX_OPTIONS = 5000;
+
 export class FormRuntime {
   readonly instance: FormInstance;
   readonly form: FormDefinition;
@@ -78,10 +82,53 @@ export class FormRuntime {
     this.rules = form.rules.filter((r) => r.origin === "rule" && r.enabled !== false);
   }
 
+  private readonly secondaryData = new Map<string, DataDocument>();
+
+  /** Names of the secondary data sources the template declares, and whether data has been supplied for each. */
+  secondarySources(): { name: string; loaded: boolean }[] {
+    return this.form.dataSources.filter((d) => d.kind === "secondary" && d.name !== undefined).map((d) => ({ name: d.name!, loaded: this.secondaryData.has(d.name!) }));
+  }
+
+  /**
+   * Supply the data of a secondary data source from a local XML document. The template's own query
+   * (a web service, a SharePoint list, a database) is never run; this is the only way data gets in.
+   */
+  loadSecondary(name: string, xml: Buffer | string): void {
+    if (!this.secondarySources().some((s) => s.name === name)) throw new XsnError("NODE_NOT_FOUND", `The form has no data source "${name}"`);
+    this.secondaryData.set(name, parseDataDocument(xml));
+  }
+
+  /** Keep the data supplied to another runtime of the same form (used when the form data is replaced). */
+  adoptSecondary(from: FormRuntime): void {
+    for (const [name, doc] of from.secondaryData) this.secondaryData.set(name, doc);
+  }
+
+  unloadSecondary(name: string): void {
+    this.secondaryData.delete(name);
+  }
+
+  /** The options a dropdown draws from a loaded secondary data source, or undefined while none is loaded. */
+  optionsFrom(source: { dataSource: string; select?: string; value?: string; label?: string; namespaces?: Record<string, string> }): { value: string; label: string }[] | undefined {
+    const doc = this.secondaryData.get(source.dataSource);
+    if (!doc || source.select === undefined || source.value === undefined) return undefined;
+    const env: XPathEnv = { doc, resolvePrefix: (p) => source.namespaces?.[p] ?? this.instance.namespaceResolver(p), ...(this.options.now ? { now: this.options.now } : {}) };
+    const seen = new Set<string>();
+    const out: { value: string; label: string }[] = [];
+    for (const item of selectXPath(source.select, documentNode(doc), env)) {
+      if (out.length >= MAX_OPTIONS) break;
+      const value = toStringValue(evaluateXPath(source.value, item, env));
+      if (seen.has(value)) continue;
+      seen.add(value);
+      out.push({ value, label: toStringValue(evaluateXPath(source.label ?? source.value, item, env)) });
+    }
+    return out;
+  }
+
   private get env(): XPathEnv {
     return {
       doc: this.instance.document,
       resolvePrefix: this.instance.namespaceResolver,
+      secondary: (name) => this.secondaryData.get(name),
       ...(this.options.now ? { now: this.options.now } : {}),
     };
   }

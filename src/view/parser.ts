@@ -57,6 +57,31 @@ const xdAttr = (el: XmlElement, name: string): string | undefined => el.attribut
 const isXsl = (el: XmlElement, local?: string) => el.ns === XSL && (local === undefined || el.local === local);
 const normalise = (s: string) => s.replace(/[\s ]+/g, " ").trim();
 
+export interface OptionsSource {
+  dataSource: string;
+  /** Path (starting with "/") selecting one node per option in the data source's document. */
+  select?: string;
+  /** Expressions evaluated against each selected node. */
+  value?: string;
+  label?: string;
+  namespaces?: Record<string, string>;
+}
+
+/** `<option value="{expr}">` or `<option><xsl:attribute name="value"><xsl:value-of select="expr"/>`. */
+function optionValueExpression(option: XmlElement): string | undefined {
+  const avt = /^\{([^{}]+)\}$/.exec(option.attrs["value"] ?? "");
+  if (avt) return avt[1];
+  for (const c of option.children) {
+    if (isXsl(c, "attribute") && c.attrs["name"] === "value") return c.children.find((v) => isXsl(v, "value-of"))?.attrs["select"];
+  }
+  return undefined;
+}
+
+function optionLabelExpression(option: XmlElement): string | undefined {
+  return option.children.filter((c) => isXsl(c, "value-of")).pop()?.attrs["select"];
+}
+
+
 function textOf(el: XmlElement): string {
   return normalise(el.content.map((c) => (typeof c === "string" ? c : isXsl(c) ? "" : textOf(c))).join(" "));
 }
@@ -516,8 +541,8 @@ class ViewBuilder {
         const properties: Record<string, unknown> = { options };
         const source = this.optionsSource(el);
         if (source !== undefined) {
-          properties["optionsSource"] = { dataSource: source };
-          this.diagnostics.push({ level: "warning", message: `Options of "${b.binding ?? id ?? name}" come from the data source "${source}", which is not loaded` });
+          properties["optionsSource"] = source;
+          this.diagnostics.push({ level: "warning", message: `Options of "${b.binding ?? id ?? name}" come from the data source "${source.dataSource}", which is not loaded` });
         }
         if (name === "combobox") properties["editable"] = true;
         if (name === "multipleselectionlistbox") properties["multiple"] = true;
@@ -550,20 +575,35 @@ class ViewBuilder {
     }
   }
 
-  /** Name of the secondary data source a dropdown draws its options from, if any. */
-  private optionsSource(el: XmlElement): string | undefined {
+  /**
+   * The secondary data source a dropdown draws its options from, if any, and (when the view has the
+   * usual `for-each` over it) how to read a value and a label from each item.
+   */
+  private optionsSource(el: XmlElement): OptionsSource | undefined {
     const stack = [...el.children];
+    let found: OptionsSource | undefined;
     while (stack.length > 0) {
       const next = stack.pop()!;
       if (isXsl(next)) {
         for (const value of Object.values(next.attrs)) {
           const m = /GetDOM\(\s*["']([^"']+)["']\s*\)/.exec(value);
-          if (m) return m[1];
+          if (m) found ??= { dataSource: m[1]! };
+        }
+        if (isXsl(next, "for-each")) {
+          const m = /^\s*[\w-]+:GetDOM\(\s*["']([^"']+)["']\s*\)(\/.+)$/s.exec(next.attrs["select"] ?? "");
+          const option = next.children.find((c) => !isXsl(c) && c.local.toLowerCase() === "option");
+          if (m && option) {
+            const value = optionValueExpression(option);
+            const label = optionLabelExpression(option) ?? value;
+            if (value !== undefined && label !== undefined) {
+              return { dataSource: m[1]!, select: m[2]!, value, label, namespaces: Object.fromEntries(next.scope) };
+            }
+          }
         }
       }
       stack.push(...next.children);
     }
-    return undefined;
+    return found;
   }
 
   private optionsOf(el: XmlElement): { value: string; label: string }[] {

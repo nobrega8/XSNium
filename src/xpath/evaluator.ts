@@ -29,6 +29,8 @@ export interface XPathEnv {
   resolvePrefix: (prefix: string) => string | undefined;
   /** Clock for the date functions; injectable so results are reproducible in tests. */
   now?: () => Date;
+  /** Data loaded for a secondary data source, by name (what xdXDocument:GetDOM returns). */
+  secondary?: (name: string) => DataDocument | undefined;
   /** Most nodes one evaluation may visit. */
   maxSteps?: number;
 }

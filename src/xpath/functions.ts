@@ -1,6 +1,6 @@
 import { XsnError } from "../package/errors.ts";
 import type { EvalContext } from "./evaluator.ts";
-import { stringValue, toBoolean, toNumber, toStringValue, type Value, type XNode } from "./nodes.ts";
+import { documentNode, stringValue, toBoolean, toNumber, toStringValue, type Value, type XNode } from "./nodes.ts";
 
 /**
  * The XPath 1.0 core library plus the InfoPath extension functions templates actually use
@@ -205,8 +205,12 @@ const INFOPATH: Record<string, Fn> = {
     const c = new Intl.Collator(a.length > 2 && toStringValue(a[2]!) ? toStringValue(a[2]!) : undefined, { sensitivity: ignoreCase ? "accent" : "variant" }).compare(x, y);
     return c < 0 ? -1 : c > 0 ? 1 : 0;
   },
-  // Data that is not loaded (secondary data sources) is simply empty.
-  [`${NS.xdoc}|GetDOM`]: () => [],
+  // A secondary data source that has not been loaded is simply empty.
+  [`${NS.xdoc}|GetDOM`]: (a, ctx) => {
+    argc("GetDOM", a, 1, 1);
+    const doc = ctx.env.secondary?.(toStringValue(a[0]!));
+    return doc ? [documentNode(doc)] : [];
+  },
   [`${NS.xdoc}|GetMasterDOM`]: () => [],
   [`${NS.env}|IsBrowser`]: () => false,
 };
