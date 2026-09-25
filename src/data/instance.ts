@@ -60,6 +60,14 @@ export class FormInstance {
     return name !== undefined && this.form.views.some((v) => v.name === name) ? name : undefined;
   }
 
+  /**
+   * Make sure a processing instruction is present. Once the file attachment instruction is in a form file it
+   * must never be removed, so this only ever adds.
+   */
+  ensureInstruction(target: string, data = ""): void {
+    if (!this.document.instructions.some((i) => i.target === target)) this.document.instructions.push({ target, data });
+  }
+
   /** Version of the template this data was created with, used to decide whether an upgrade is needed. */
   get solutionVersion(): string | undefined {
     return instructionAttributes(this.document, "mso-infoPathSolution")["solutionVersion"];
@@ -434,6 +442,7 @@ function templateInstructions(form: FormDefinition): DataDocument["instructions"
   return [
     { target: "mso-infoPathSolution", data: attrs.join(" ") },
     { target: "mso-application", data: 'progid="InfoPath.Document" versionProgid="InfoPath.Document.3"' },
+    ...(form.hasFileAttachments ? [{ target: "mso-infoPath-file-attachment-present", data: "" }] : []),
   ];
 }
 

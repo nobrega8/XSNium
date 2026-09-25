@@ -4,6 +4,7 @@ import type { FormDefinition, RuleAction, RuleDefinition, ValidationDefinition }
 import { XsnError } from "../package/errors.ts";
 import { evaluateXPath, selectXPath, type XPathEnv } from "../xpath/evaluator.ts";
 import { attributeNode, elementNode, stringValue, toBoolean, toStringValue, type Value, type XNode } from "../xpath/nodes.ts";
+import { MAX_BLOB_BYTES, buildAttachment, decodeBase64, describeBlob, encodeBase64, isDangerousFileName, parseAttachment, safeAttachmentName, sniffImage, IMAGE_MIME, type BlobInfo } from "../data/blobs.ts";
 import { checkPattern, checkType, digitCounts, isDateType, isNumericType } from "./validate.ts";
 
 /**
@@ -273,6 +274,64 @@ export class FormRuntime {
       }
     }
     return changed;
+  }
+
+  // --- pictures and attachments --------------------------------------------------------------
+
+  /** The binary field at `path`, when its schema says it holds binary data. */
+  private blobField(path: string): DataNode & { kind: "element" } {
+    const node = this.instance.select(path)[0];
+    if (!node || node.kind !== "element") throw new XsnError("NODE_NOT_FOUND", `No field at "${path}"`);
+    const type = this.instance.schemaNodeOf(node.el)?.type?.name;
+    if (type !== "base64Binary") throw new XsnError("INVALID_OPERATION", "This field does not hold a picture or file");
+    return node;
+  }
+
+  /** Store a picture. Only raster images a browser can show safely are accepted. */
+  setPicture(path: string, bytes: Buffer): Outcome {
+    this.blobField(path);
+    if (bytes.length > MAX_BLOB_BYTES) throw new XsnError("LIMIT_EXCEEDED", "The picture is too large");
+    if (!sniffImage(bytes)) throw new XsnError("INVALID_OPERATION", "Choose a PNG, JPEG, GIF or BMP picture");
+    return this.setValue(path, encodeBase64(bytes));
+  }
+
+  /** Attach a file, in the structure InfoPath uses. Programs and scripts are refused. */
+  setAttachment(path: string, fileName: string, bytes: Buffer): Outcome {
+    this.blobField(path);
+    const outcome = this.setValue(path, encodeBase64(buildAttachment(fileName, bytes)));
+    // Required by the file format, and never removed once present.
+    this.instance.ensureInstruction("mso-infoPath-file-attachment-present");
+    return outcome;
+  }
+
+  clearBlob(path: string): Outcome {
+    this.blobField(path);
+    return this.setValue(path, "");
+  }
+
+  /** What a binary field holds, without the bytes. */
+  blobInfo(path: string): BlobInfo {
+    return describeBlob(this.instance.getValue(path) ?? "");
+  }
+
+  /** The content of a binary field, ready to be served. Undefined when there is nothing safe to serve. */
+  readBlob(path: string): { kind: "picture"; mime: string; bytes: Buffer } | { kind: "attachment"; fileName: string; bytes: Buffer; dangerous: boolean } | undefined {
+    const text = this.instance.getValue(path);
+    if (text === undefined || text.trim() === "") return undefined;
+    let bytes: Buffer;
+    try {
+      bytes = decodeBase64(text);
+    } catch {
+      return undefined;
+    }
+    const image = sniffImage(bytes);
+    if (image) return { kind: "picture", mime: IMAGE_MIME[image], bytes };
+    try {
+      const a = parseAttachment(bytes);
+      return { kind: "attachment", fileName: safeAttachmentName(a.fileName), bytes: a.bytes, dangerous: isDangerousFileName(a.fileName) };
+    } catch {
+      return undefined;
+    }
   }
 
   // --- validation ----------------------------------------------------------------------------

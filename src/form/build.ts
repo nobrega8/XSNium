@@ -371,6 +371,7 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
   const flatten = (cs: ViewDefinition["controls"]): ViewDefinition["controls"] => cs.flatMap((c) => [c, ...flatten(c.children ?? [])]);
   for (const v of views) for (const c of flatten(v.controls)) if (c.type === "repeatingTable" && c.binding) optionalNodes.delete(c.binding);
 
+  const hasFileAttachments = views.some((v) => flatten(v.controls).some((c) => c.type === "fileAttachment"));
   const rules = buildRules(manifest);
   const allValidations = [...validations, ...buildValidations(manifest)];
 
@@ -378,6 +379,7 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     id: slug(manifest.formName ?? name),
     name,
     ...(manifest.solutionVersion !== undefined ? { version: manifest.solutionVersion } : {}),
+    ...(hasFileAttachments ? { hasFileAttachments } : {}),
     template: {
       ...(manifest.formName !== undefined ? { name: manifest.formName } : {}),
       ...(manifest.solutionVersion !== undefined ? { solutionVersion: manifest.solutionVersion } : {}),

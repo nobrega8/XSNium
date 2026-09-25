@@ -167,6 +167,8 @@ export interface FormDefinition {
   id: string;
   name: string;
   version?: string;
+  /** True when a view has a file attachment control: instances must then carry the attachment processing instruction. */
+  hasFileAttachments?: boolean;
   /** How instances identify their template in the mso-infoPathSolution processing instruction. */
   template?: { name?: string; solutionVersion?: string; productVersion?: string };
   namespaces: NamespaceDefinition[];

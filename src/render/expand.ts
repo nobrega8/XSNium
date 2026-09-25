@@ -1,3 +1,4 @@
+import { describeBlob, type BlobInfo } from "../data/blobs.ts";
 import type { FormInstance } from "../data/instance.ts";
 import type { ControlDefinition, ControlType, Presentation, ViewDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
@@ -26,6 +27,8 @@ export interface RenderNode {
   value?: string;
   /** Whether the bound node exists in the data. */
   exists?: boolean;
+  /** For pictures and file attachments: what the field holds. The bytes are fetched separately, never inlined. */
+  blob?: BlobInfo;
   properties: Record<string, unknown>;
   /** How the original view drew this element (sanitised); front ends may ignore it. */
   presentation?: Presentation;
@@ -114,7 +117,12 @@ class Expander {
       out.path = path;
       try {
         out.exists = this.instance.select(path).length > 0;
-        out.value = this.instance.getValue(path) ?? "";
+        const value = this.instance.getValue(path) ?? "";
+        if (c.type === "image" || c.type === "fileAttachment") {
+          // Binary data can be megabytes of base64: describe it, and let the page fetch it when it is needed.
+          out.blob = describeBlob(value);
+          out.value = "";
+        } else out.value = value;
       } catch {
         // A binding the path subset cannot address is shown empty rather than failing the view.
         out.exists = false;
