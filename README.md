@@ -60,6 +60,8 @@ npm run xsnium -- serve path/to/form.xsn --open
 
 This starts a local web UI on `127.0.0.1` (only this computer can reach it). You can open a template, fill it in, add and remove repeating rows, switch views, load existing data, save the result as XML, and see a compatibility panel listing what the template uses that is not supported yet. Omit the path to open a form from the page instead.
 
+**Print / PDF** in the toolbar prints the form or, from the print dialog, saves it as a PDF. Only the form is printed, with its colours and without the editing buttons, scaled down when it is wider than the page.
+
 ### A single-file program
 
 `npm run build:exe` produces `dist/xsnium` (`dist/xsnium.exe` on Windows): one file that needs no Node.js installed. It is a Node single executable application, so it is built per platform, on that platform. Opening it without arguments starts the app and shows it in your browser; it accepts the same commands as the CLI. On Windows, `npm run build:installer` wraps it in an Inno Setup installer published as "Afonso Nóbrega Dev" (per-user by default, with an optional "Open with XSNium" entry for `.xsn` files). Versions follow [VERSIONING.md](VERSIONING.md), and tagging `vX.Y.Z` builds and publishes a release. The result is not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn about it until signing is set up.
@@ -181,7 +183,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 11 | Views (several views, switching, initial view) | Done |
 | 12 | Rules, calculations and expressions | Done for calculations, change-triggered rules, button rule sets, set-value, switch-view and custom validation; submit and dialog actions are reported, not run |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
-| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths, box styles and conditional formatting of style done; text details, control chrome and print to do |
+| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths, box styles, conditional formatting of style and printing done; text details and control chrome to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
 **Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Dropdowns fed by a data connection (a SharePoint list, a service) can be filled from a local XML file you supply; the connection itself is never run. Digital signatures and submission are not executed yet.
@@ -215,7 +217,6 @@ Everyone who has contributed code to XSNium:
   <img src="https://contrib.rocks/image?repo=nobrega8/XSNium" alt="Contributors to XSNium" />
 </a>
 
-The picture is generated from the repository's commit history, so it updates by itself when a pull request is merged.
 
 ### Ways to help
 

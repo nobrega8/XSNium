@@ -411,3 +411,25 @@ describe("conditional content in a real browser", () => {
     assert.deepEqual(errors, []);
   });
 });
+
+describe("printing in a real browser", () => {
+  it("prints only the form, and can produce a PDF", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await page.setInputFiles("#open-form", { name: "cond.xsn", mimeType: "application/octet-stream", buffer: condXsnBytes() });
+    await page.waitForSelector(".page input");
+    const shown = (selector: string) => page.locator(selector).evaluate((e) => getComputedStyle(e).display);
+    assert.notEqual(await shown(".toolbar"), "none");
+    await page.emulateMedia({ media: "print" });
+    try {
+      assert.equal(await shown(".toolbar"), "none");
+      assert.equal(await page.locator(".page").evaluate((e) => getComputedStyle(e).borderTopWidth), "0px");
+      const pdf = await page.pdf({ format: "A4", printBackground: true });
+      assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+      assert.ok(pdf.length > 1000);
+    } finally {
+      await page.emulateMedia({ media: "screen" });
+    }
+    assert.notEqual(await shown(".toolbar"), "none");
+    assert.equal(await page.locator("#print").isEnabled(), true);
+  });
+});

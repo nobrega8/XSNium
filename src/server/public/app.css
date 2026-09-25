@@ -84,3 +84,16 @@ img.picture { max-width: 100%; height: auto; }
 .blob .tool, .blob a.tool { cursor: pointer; }
 a.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); text-decoration: none; }
 label.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--text); cursor: pointer; }
+
+/* Printing: only the form, on white, with its colours, and without the editing aids. */
+@page { margin: 12mm; }
+@media print {
+  html, body { background: #fff; }
+  .toolbar, #compat, #status, .row-tools, .add-row, .add, .optionalPlaceholder, .blob .tool, .empty { display: none !important; }
+  main { padding: 0; }
+  .page { max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: #fff; overflow: visible; }
+  .page *, .page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .invalid { outline: 0 !important; box-shadow: none !important; }
+  tr, .row { break-inside: avoid; }
+  input, select, textarea { border-color: #999; }
+}

@@ -679,7 +679,7 @@ function applyState(next) {
   currentView = state.initialView ?? null;
   if (currentView) select.value = currentView;
   document.title = state.loaded ? `${state.name} - XSNium` : "XSNium";
-  for (const id of ["save", "new-data", "view-select", "compat-toggle", "open-data"]) $(id).disabled = !state.loaded;
+  for (const id of ["save", "new-data", "view-select", "compat-toggle", "open-data", "print"]) $(id).disabled = !state.loaded;
   $("open-data-label").classList.toggle("disabled", !state.loaded);
   drawCompat();
 }
@@ -741,6 +741,19 @@ $("layout-toggle").addEventListener("change", (event) => {
 $("problems").addEventListener("click", () => {
   document.querySelector(".invalid")?.scrollIntoView({ block: "center" });
 });
+
+// Printing: shrink a form that is wider than the paper so nothing is cut off, and put it back afterwards.
+const PRINT_WIDTH = 700;
+window.addEventListener("beforeprint", () => {
+  const host = stage.querySelector(".xsn-view") ?? stage.querySelector(".page");
+  if (!host) return;
+  const width = host.scrollWidth;
+  if (width > PRINT_WIDTH) host.style.setProperty("zoom", String(PRINT_WIDTH / width));
+});
+window.addEventListener("afterprint", () => {
+  for (const host of stage.querySelectorAll(".xsn-view, .page")) host.style.removeProperty("zoom");
+});
+$("print").addEventListener("click", () => window.print());
 
 $("compat-toggle").addEventListener("click", () => {
   $("compat").hidden = !$("compat").hidden;
