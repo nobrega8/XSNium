@@ -161,7 +161,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 8-9 | UI bindings, repeating structures | Mostly covered by the above; hardening on more forms |
 | 10-12 | Validation, views, rules and expressions | Planned |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
-| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | Planned, alongside phases 7-13 |
+| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths and box styles done; text details, control chrome, conditional formatting and print to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
 **Today:** open a template, fill it in, and save the result as XML in the local web UI. Rules, calculated fields, validation messages, file attachments, embedded pictures and data connections are not executed yet.
@@ -170,9 +170,9 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 
 ## Rendering fidelity
 
-The goal is for a form to look, at the size it was designed for, the way it did in InfoPath: same positions, sizes, fonts, colours, borders and column widths. Today the UI follows the structure and labels of a form in a clean modern layout, but does not yet apply the original styling.
+The goal is for a form to look, at the size it was designed for, the way it did in InfoPath: same positions, sizes, fonts, colours, borders and column widths. Today the UI can draw a form with its own stylesheet, table widths, fonts and box styles (the default **Original layout**), or in a plain responsive **modern layout** (untick the toolbar option).
 
-Fidelity is built as its own track: the view parser will keep a sanitised style layer, the front end will offer an original-layout mode next to the modern one, and progress will be measured with layout assertions, visual regression and comparisons against reference screenshots from real InfoPath. Text rasterisation and native widget chrome can differ by platform, and appearance data from a template is treated as untrusted like everything else. Details and stages are in [plan.md](plan.md), section 9a.
+Fidelity is built as its own track: the view parser keeps a sanitised style layer that the front end applies in original-layout mode, and progress is measured with layout assertions, visual regression and comparisons against reference screenshots from real InfoPath. Text rasterisation and native widget chrome can differ by platform, and appearance data from a template is treated as untrusted like everything else. Details and stages are in [plan.md](plan.md), section 9a.
 
 If you have forms whose look matters, reference screenshots from InfoPath (with private data removed) are one of the most useful contributions.
 

@@ -363,6 +363,20 @@ The view XSL already carries the appearance: inline `style` attributes, `colgrou
 * Offer both looks: an **original layout** mode that follows the style layer and a **modern layout** mode that stays responsive. The original layout is a rendering option of the same model, not a separate code path per form.
 * Keep the layers separate: the view parser extracts the style layer, the rendering engine passes it through, and only the front end applies it.
 
+## Status
+
+* **F1 and part of F2 are done.** The view parser keeps a sanitised presentation layer: the view's own stylesheets (scoped under `.xsn-view`), class names, inline styles, table column widths, cell alignment, headings and styled wrappers, legacy `<font>` attributes, image sizes and the design width. The front end has an *original layout* mode that applies it through the CSSOM and a constructable stylesheet, and a *modern layout* mode that ignores it.
+* The same work made views follow InfoPath's run-time behaviour: content guarded by `xsl:when` or `xsl:if` on a node's existence only appears while the node exists, the "click to add" areas are real controls that insert the node they name, and a section's design-time height is not applied (MSHTML sized sections to their content, and treated a fixed height on a block as a minimum).
+* Still to do: F3 text details (spacing, line height), F4 control chrome, F5 conditional formatting, F6 print.
+
+## Reference renders from InfoPath
+
+Real InfoPath can be used as the reference, with these cautions:
+
+* **Remove remote connections from a copy first.** Opening a template that has data connections triggers a security notice that a server will be contacted. Test against a copy with the publish location, secondary data sources and submit adapters removed, and never against the original. A form that needs the domain trust level cannot be opened that way and is left out.
+* **Do not compare text sizes across machines.** MSHTML converts `pt` to pixels with the system's logical DPI but keeps `px` as device pixels, so on a display set to 150% scaling text is drawn 1.5 times larger than at 96 DPI while widths in `px` stay the same. Compare **geometry in pixels** (column offsets, image and control widths) or capture at 96 DPI.
+* First comparison on a real 750px form: the distance between two columns (377px), the width of an image (233px against 234px) and the width of an input (186px against 187px) agree to within one pixel.
+
 ## How it is tested
 
 * **Layout assertions first.** Compare the measured boxes of rendered elements (from the browser, via Playwright) with the values in the style layer. These are stable and catch most regressions.

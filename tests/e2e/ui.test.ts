@@ -178,3 +178,52 @@ describe("web UI in a real browser", () => {
     await other.close();
   });
 });
+
+describe("original layout in a real browser", () => {
+  it("draws the form with the view's own stylesheet and sizes, under the strict content security policy", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openSample();
+    await page.waitForSelector(".xsn-view");
+    // Sizes from the view's inline style and colgroup are applied, without any style attribute in the markup.
+    const box = await page.locator(".xsn-view table.grid").boundingBox();
+    assert.ok(box && Math.abs(box.width - 400) <= 1, `table is 400px wide, got ${box?.width}`);
+    // Rules from the view's own <style> block are applied through a constructable stylesheet.
+    assert.equal(await page.evaluate(() => document.adoptedStyleSheets.length), 1);
+    assert.equal(await page.locator(".xsn-view td.cell").evaluate((td) => getComputedStyle(td).paddingLeft), "7px");
+    // Rules that could load something were dropped rather than applied.
+    const rules = await page.evaluate(() => [...document.adoptedStyleSheets[0]!.cssRules].map((r) => r.cssText).join("\n"));
+    assert.doesNotMatch(rules, /behavior|url\(/i);
+    assert.equal(await page.evaluate(() => document.querySelectorAll("[style]").length > 0), true, "sizes go through the CSSOM");
+    assert.deepEqual(errors, []);
+  });
+
+  it("switches to a plain modern layout and back", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openSample();
+    await page.waitForSelector(".xsn-view");
+    await page.uncheck("#layout-toggle");
+    await page.waitForFunction(() => !document.querySelector(".xsn-view"));
+    assert.equal(await page.evaluate(() => document.adoptedStyleSheets.length), 0);
+    assert.equal(await page.locator("table.grid").count(), 0, "the view's classes are not applied in modern layout");
+    assert.equal(await page.locator('input[data-path="/my:root/my:title"]').inputValue(), "Hello");
+    await page.check("#layout-toggle");
+    await page.waitForSelector(".xsn-view table.grid");
+    assert.deepEqual(errors, []);
+  });
+
+  it("offers click-to-add areas that insert the node they name", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openSample();
+    // Placeholders are resolved through the view's own xmlToEdit list, which only the first view has.
+    await page.selectOption("#view-select", "First");
+    await page.waitForSelector(".optionalPlaceholder");
+    // The optional node is missing, so the view shows its placeholder and not the content that needs the node.
+    assert.match(await page.locator(".page").innerText(), /Add the late field/);
+    assert.doesNotMatch(await page.locator(".page").innerText(), /The late field exists/);
+    await page.locator(".optionalPlaceholder", { hasText: "Add the late field" }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("The late field exists"));
+    assert.doesNotMatch(await page.locator(".page").innerText(), /Add the late field/, "nothing more can be inserted there");
+    assert.match(await exportedXml(), /<my:late\/>|<my:late>/);
+    assert.deepEqual(errors, []);
+  });
+});
