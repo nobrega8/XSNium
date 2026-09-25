@@ -2,6 +2,8 @@ import { childOf, childrenOf, descendantsOf, parseXml, type XmlElement } from ".
 import { XsnError } from "../package/errors.ts";
 import type {
   DataAdapterKind,
+  ManifestEmail,
+  ManifestValue,
   DetectedFeature,
   ManifestDataAdapter,
   ManifestDataObject,
@@ -76,8 +78,37 @@ function isAdapter(el: XmlElement): boolean {
   return /adapter/i.test(el.local);
 }
 
+function valueOf(el: XmlElement | undefined): ManifestValue | undefined {
+  const value = el?.attrs["value"];
+  return value === undefined ? undefined : { value, expression: el?.attrs["valueType"]?.toLowerCase() === "expression" };
+}
+
+function parseEmail(el: XmlElement): ManifestEmail {
+  const email: ManifestEmail = {};
+  const pick = (name: string) => valueOf(el.children.find((c) => c.local === name));
+  for (const key of ["to", "cc", "bcc", "subject", "attachmentFileName"] as const) {
+    const v = pick(key);
+    if (v) email[key] = v;
+  }
+  const intro = el.children.find((c) => c.local === "intro")?.attrs["value"];
+  if (intro !== undefined) email.intro = intro;
+  return email;
+}
+
 function parseAdapter(el: XmlElement, role: ManifestDataAdapter["role"]): ManifestDataAdapter {
   return { kind: adapterKind(el.local), name: el.attrs["name"] ?? "", submitAllowed: yes(el.attrs["submitAllowed"]), role };
+}
+
+/** Settings of the email adapters that can submit, by adapter name. Read when a draft is made, not when the manifest is modelled. */
+export function parseEmailSettings(xml: Buffer | string): Map<string, ManifestEmail> {
+  const found = new Map<string, ManifestEmail>();
+  const root = parseXml(xml);
+  const visit = (el: XmlElement) => {
+    if (adapterKind(el.local) === "email" && isAdapter(el) && yes(el.attrs["submitAllowed"])) found.set(el.attrs["name"] ?? "", parseEmail(el));
+    for (const c of el.children) visit(c);
+  };
+  for (const section of [childOf(root, XSF, "dataAdapters"), childOf(root, XSF, "submit")]) if (section) visit(section);
+  return found;
 }
 
 /** Adapters can sit in the adapter list, in the submit block, and in the query of a secondary data source. */
@@ -169,11 +200,13 @@ function detectFeatures(root: XmlElement, model: Omit<ManifestModel, "features">
     });
   }
   for (const a of model.dataAdapters) {
+    // An email submit is prepared as a draft message file; nothing is ever sent.
+    const draft = a.kind === "email" && a.role !== "query";
     add({
       feature: `Data connection: ${a.kind}`,
-      support: "unsupported",
+      support: draft ? "partial" : "unsupported",
       location: MANIFEST_LOCATION,
-      detail: a.name,
+      detail: draft ? `${a.name} (saved as a draft email file, not sent)` : a.name,
     });
   }
   if (model.hasPublishLocation) {

@@ -214,7 +214,13 @@ function buildDataSources(manifest: ManifestModel, rootPath: string, schema: Sch
   });
   manifest.dataAdapters
     .filter((a) => a.role !== "query")
-    .forEach((a, i) => sources.push({ id: `connection-${i + 1}`, kind: "connection", connection: { type: a.kind, name: a.name, role: a.role, status: "unsupported" } }));
+    .forEach((a, i) =>
+      sources.push({
+        id: `connection-${i + 1}`,
+        kind: "connection",
+        connection: { type: a.kind, name: a.name, role: a.role, status: a.kind === "email" && a.submitAllowed ? "draft" : "unsupported" },
+      }),
+    );
   return sources;
 }
 

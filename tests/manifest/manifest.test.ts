@@ -62,7 +62,7 @@ describe("parseManifest", () => {
     const byName = Object.fromEntries(m.features.map((f) => [f.feature, f.support]));
     assert.equal(byName["Custom code"], "unsupported");
     assert.equal(byName["Calculated fields"], "partial");
-    assert.equal(byName["Data connection: email"], "unsupported");
+    assert.equal(byName["Data connection: email"], "partial", "an email submit is prepared as a draft");
     assert.equal(byName["Data connection: webService"], "unsupported");
   });
 

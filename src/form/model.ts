@@ -103,7 +103,13 @@ export interface DataSourceDefinition {
   /** Package file holding the template's initial data document, if it declares one. */
   initialDataFile?: string;
   /** Connection data sources are detected but never executed. */
-  connection?: { type: string; name: string; role?: string; status: "unsupported" };
+  connection?: {
+    type: string;
+    name: string;
+    role?: string;
+    /** draft: an email submit that is prepared as a message file and never sent. */
+    status: "unsupported" | "draft";
+  };
 }
 
 export interface ResourceDefinition {

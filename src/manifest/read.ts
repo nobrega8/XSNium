@@ -1,11 +1,17 @@
 import type { Diagnostic, XsnPackage } from "../package/xsn-package.ts";
 import { XsnError } from "../package/errors.ts";
 import type { ManifestModel } from "./model.ts";
-import { parseManifest } from "./parser.ts";
+import { parseEmailSettings, parseManifest } from "./parser.ts";
+import type { ManifestEmail } from "./model.ts";
 
 export interface ManifestReadResult {
   manifest: ManifestModel;
   diagnostics: Diagnostic[];
+}
+
+/** The settings of the package's email submit adapters, by name. The caller must not log or display them. */
+export function readEmailSettings(pkg: XsnPackage): Map<string, ManifestEmail> {
+  return pkg.manifest ? parseEmailSettings(pkg.read(pkg.manifest)) : new Map();
 }
 
 /** Parse the package's manifest and check that everything it references is present. */

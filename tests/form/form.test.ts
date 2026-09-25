@@ -60,10 +60,10 @@ describe("buildFormDefinition", () => {
     assert.deepEqual([main.id, main.kind, main.rootPath, main.schema?.name], ["main", "main", "/my:root", "root"]);
   });
 
-  it("lists data connections as unsupported, without executing them", () => {
+  it("lists data connections without executing them; an email submit is a draft, the rest unsupported", () => {
     const conns = f.dataSources.filter((d) => d.kind === "connection");
     assert.deepEqual(conns.map((c) => c.connection), [
-      { type: "email", name: "Main submit", role: "adapter", status: "unsupported" },
+      { type: "email", name: "Main submit", role: "adapter", status: "draft" },
       { type: "webService", name: "Lookup", role: "adapter", status: "unsupported" },
     ]);
   });

@@ -45,6 +45,25 @@ export interface ManifestCalculation {
 
 export type DataAdapterKind = "email" | "webService" | "sharePointList" | "sql" | "xml" | "other";
 
+/** A value the template gives literally or as an expression over the form's data. */
+export interface ManifestValue {
+  value: string;
+  expression: boolean;
+}
+
+/**
+ * How an email adapter addresses and describes the message. The recipients come from the template, so this is
+ * deliberately not part of ManifestModel: it is read on demand (see readEmailSettings) and never kept, printed or sent to a page.
+ */
+export interface ManifestEmail {
+  to?: ManifestValue;
+  cc?: ManifestValue;
+  bcc?: ManifestValue;
+  subject?: ManifestValue;
+  intro?: string;
+  attachmentFileName?: ManifestValue;
+}
+
 export interface ManifestDataAdapter {
   kind: DataAdapterKind;
   name: string;

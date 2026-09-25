@@ -7,6 +7,7 @@ import { XsnError } from "../package/errors.ts";
 import { evaluateXPath, selectXPath, type XPathEnv } from "../xpath/evaluator.ts";
 import { attributeNode, documentNode, elementNode, stringValue, toBoolean, toStringValue, type Value, type XNode } from "../xpath/nodes.ts";
 import { MAX_BLOB_BYTES, buildAttachment, decodeBase64, describeBlob, encodeBase64, isDangerousFileName, parseAttachment, safeAttachmentName, sniffImage, IMAGE_MIME, type BlobInfo } from "../data/blobs.ts";
+import { parseAddresses, type EmailDraft } from "../submit/eml.ts";
 import { checkPattern, checkType, digitCounts, isDateType, isNumericType } from "./validate.ts";
 
 /**
@@ -46,6 +47,8 @@ export interface ValidationIssue {
 export interface RuntimeOptions {
   /** Clock for the date functions. */
   now?: () => Date;
+  /** Where to find the settings of an email submit adapter (recipients, subject). They are read on demand and never kept in the form model. */
+  emailSettings?: (adapter: string) => import("../manifest/model.ts").ManifestEmail | undefined;
 }
 
 const MAX_SETTLE_PASSES = 20;
@@ -122,6 +125,44 @@ export class FormRuntime {
       out.push({ value, label: toStringValue(evaluateXPath(source.label ?? source.value, item, env)) });
     }
     return out;
+  }
+
+  /**
+   * Prepare the draft email for a submit adapter. Nothing is sent: the caller saves the message as a file.
+   * `adapter` is the adapter's name; without it the form's first email submit is used.
+   */
+  emailDraft(adapter?: string): { draft: EmailDraft; skipped: number } {
+    const source = this.form.dataSources.find(
+      (d) => d.kind === "connection" && d.connection?.type === "email" && d.connection.status === "draft" && (adapter === undefined || adapter === "" || d.connection.name === adapter),
+    );
+    const spec = source?.connection ? this.options.emailSettings?.(source.connection.name) : undefined;
+    if (!source || !spec) throw new XsnError("INVALID_OPERATION", `Submitting${adapter ? ` to "${adapter}"` : ""} is not supported: only an email submit can be prepared, as a draft file`);
+    const root = elementNode(this.instance.document.root);
+    const text = (v: { value: string; expression: boolean } | undefined): string => {
+      if (!v) return "";
+      if (!v.expression) return v.value;
+      try {
+        return toStringValue(this.evaluate(v.value, root));
+      } catch {
+        return "";
+      }
+    };
+    let skipped = 0;
+    const list = (v: { value: string; expression: boolean } | undefined): string[] => {
+      const { valid, invalid } = parseAddresses(text(v));
+      skipped += invalid;
+      return valid;
+    };
+    const draft: EmailDraft = {
+      to: list(spec.to),
+      cc: list(spec.cc),
+      bcc: list(spec.bcc),
+      subject: text(spec.subject) || this.form.name || "Form",
+      intro: spec.intro ?? "",
+      attachmentName: text(spec.attachmentFileName) || "form",
+      attachment: Buffer.from(this.instance.toXml(), "utf8"),
+    };
+    return { draft, skipped };
   }
 
   private get env(): XPathEnv {
