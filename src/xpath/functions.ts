@@ -62,8 +62,10 @@ function localNow(ctx: EvalContext): Date {
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()));
 }
 
-function numbersOf(v: Value, fn: string): number[] {
-  return nodeSet(v, fn).map((n) => toNumber(stringValue(n)));
+function numbersOf(v: Value, _fn: string): number[] {
+  // A single value stands for a set of one, which is how Nz of an empty field feeds sum() and Min().
+  if (!Array.isArray(v)) return [toNumber(v)];
+  return v.map((n) => toNumber(stringValue(n)));
 }
 
 const CORE: Record<string, Fn> = {
@@ -145,8 +147,14 @@ const INFOPATH: Record<string, Fn> = {
   // xdMath
   [`${NS.math}|Nz`]: (a) => {
     argc("Nz", a, 1, 2);
-    if (!isBlank(a[0]!)) return Array.isArray(a[0]) ? toStringValue(a[0]) : a[0]!;
-    return a.length > 1 ? a[1]! : 0;
+    const fill = a.length > 1 ? a[1]! : 0;
+    if (Array.isArray(a[0])) {
+      // A node-set keeps its non-blank nodes and gets the default for the blank ones, so sum() and friends work.
+      if (a[0].length === 0) return fill;
+      const text = toStringValue(fill);
+      return a[0].map((n): XNode => (stringValue(n).trim() === "" ? { kind: "value", text } : n));
+    }
+    return isBlank(a[0]!) ? fill : a[0]!;
   },
   [`${NS.math}|Eval`]: (a, c) => {
     argc("Eval", a, 2);

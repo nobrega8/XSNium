@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import { buildFormDefinition, openXsn, parseDataDocument } from "../../src/index.ts";
 import { evaluateXPath, compile, type XPathEnv } from "../../src/xpath/evaluator.ts";
-import { elementNode, numberToString, stringValue, toStringValue, type XNode } from "../../src/xpath/nodes.ts";
+import { elementNode, numberToString, stringValue, toNumber, toStringValue, type XNode } from "../../src/xpath/nodes.ts";
 
 const NS = { my: "urn:my", o: "urn:o", xdMath: "http://schemas.microsoft.com/office/infopath/2003/xslt/Math" };
 
@@ -238,13 +238,16 @@ describe("InfoPath functions", () => {
   const at = (expr: string) => ev(expr, root, env({ now: clock }));
 
   it("xdMath:Nz turns blanks into zero or a default", () => {
-    assert.equal(ev("xdMath:Nz(my:blank)"), 0);
-    assert.equal(ev("xdMath:Nz(my:missing)"), 0);
+    assert.equal(toNumber(ev("xdMath:Nz(my:blank)")), 0);
+    assert.equal(toNumber(ev("xdMath:Nz(my:missing)")), 0);
     assert.equal(ev("xdMath:Nz(my:missing, 'n/a')"), "n/a");
-    assert.equal(ev("xdMath:Nz(my:a[2])"), "2");
+    assert.equal(toStringValue(ev("xdMath:Nz(my:a[2])")), "2");
     assert.equal(ev("xdMath:Nz(my:a[2]) * 5"), 10);
     assert.equal(ev("xdMath:Nz(my:blank) + xdMath:Nz(my:a[1])"), 1);
     assert.equal(ev("xdMath:Nz('   ')"), 0);
+    assert.equal(ev("sum(xdMath:Nz(my:blank | my:a))"), 6, "blank nodes count as zero, so sum() does not become NaN");
+    assert.equal(ev("sum(xdMath:Nz(my:missing))"), 0);
+    assert.equal(ev("xdMath:Nz(my:blank, 7) + xdMath:Nz(my:a[1], 7)"), 8);
   });
 
   it("xdMath:Eval with Min, Max, Avg and Sum", () => {
@@ -283,7 +286,7 @@ describe("InfoPath functions", () => {
 
   it("uses the conventional prefix when the form does not declare it", () => {
     const e = env({ resolvePrefix: (p) => (p === "my" ? "urn:my" : undefined) });
-    assert.equal(evaluateXPath("xdMath:Nz(my:blank)", root, e), 0);
+    assert.equal(toNumber(evaluateXPath("xdMath:Nz(my:blank)", root, e)), 0);
   });
 
   it("refuses unknown functions and prefixes instead of guessing", () => {
