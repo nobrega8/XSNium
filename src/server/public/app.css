@@ -85,6 +85,10 @@ img.picture { max-width: 100%; height: auto; }
 a.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); text-decoration: none; }
 label.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--text); cursor: pointer; }
 
+/* In the original layout the row buttons sit just outside the table, so they never cover a column. */
+.page.original td.row-cell { width: 0; padding: 0; border: 0; position: relative; overflow: visible; }
+.page.original td.row-cell .row-tools { position: absolute; left: 6px; top: 0; float: none; white-space: nowrap; }
+
 /* Printing: only the form, on white, with its colours, and without the editing aids. */
 @page { margin: 12mm; }
 @media print {
