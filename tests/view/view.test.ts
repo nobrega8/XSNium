@@ -47,6 +47,14 @@ describe("labels and layout", () => {
     assert.equal(cells[0]?.properties["colSpan"], 2);
   });
 
+  it("keeps the content of regions and lists", () => {
+    const { controls, diagnostics } = parse(`<div xd:xctname="HorizontalRegion" xd:CtrlId="H"><span xd:xctname="PlainText" xd:CtrlId="T" xd:binding="my:a"/></div>
+      <ul xd:xctname="BulletedList" xd:CtrlId="L"><li><span xd:xctname="PlainText" xd:CtrlId="T2" xd:binding="my:b"/></li></ul>`);
+    assert.deepEqual(ofType(controls, "text").map((c) => c.binding), ["/my:root/my:a", "/my:root/my:b"]);
+    assert.deepEqual(ofType(controls, "section").map((c) => c.properties["region"]), ["horizontalregion", "bulletedlist"]);
+    assert.ok(!diagnostics.some((d) => /unknown|not supported/i.test(d.message)));
+  });
+
   it("ignores head content, scripts and formatting whitespace", () => {
     const { controls } = parse(`<script>var x = 1;</script>\n   <div>   </div><div>a&#160; b</div>`);
     assert.deepEqual(ofType(controls, "label").map((l) => l.label), ["a b"]);
@@ -146,11 +154,20 @@ describe("structure and data context", () => {
     assert.equal(r.diagnostics.filter((d) => /conditional/.test(d.message)).length, 0, "tests it understands are not reported");
   });
 
-  it("handles xsl:if on a plain path, and still shows what it cannot evaluate", () => {
-    const r = parse(`<xsl:if test="my:group"><div>Only when present</div></xsl:if><xsl:if test="my:a = 'x'"><div>Unknown test</div></xsl:if>`);
-    assert.deepEqual(r.controls.map((c) => c.type), ["conditional", "label"]);
-    assert.equal(r.controls[1]?.label, "Unknown test");
-    assert.ok(r.diagnostics.some((d) => /1 conditional block/.test(d.message)));
+  it("handles xsl:if on a plain path, and keeps other tests to evaluate when the view is drawn", () => {
+    const r = parse(`<xsl:if test="my:group"><div>Only when present</div></xsl:if><xsl:if test="my:a = 'x'"><div>When a is x</div></xsl:if>`);
+    assert.deepEqual(r.controls.map((c) => c.type), ["conditional", "conditional"]);
+    assert.deepEqual(r.controls[1]?.properties["all"], [{ test: "my:a = 'x'", negate: false }]);
+    assert.equal(r.controls[1]?.children?.[0]?.label, "When a is x");
+  });
+
+  it("orders the branches of xsl:choose so that only the first true one shows", () => {
+    const r = parse(`<xsl:choose><xsl:when test="my:a = 'x'"><div>X</div></xsl:when><xsl:when test="my:a = 'y'"><div>Y</div></xsl:when><xsl:otherwise><div>Other</div></xsl:otherwise></xsl:choose>`);
+    assert.deepEqual(r.controls.map((c) => c.properties["all"]), [
+      [{ test: "my:a = 'x'", negate: false }],
+      [{ test: "my:a = 'y'", negate: false }, { test: "my:a = 'x'", negate: true }],
+      [{ test: "my:a = 'x'", negate: true }, { test: "my:a = 'y'", negate: true }],
+    ]);
   });
 
   it("does not loop on recursive templates", () => {

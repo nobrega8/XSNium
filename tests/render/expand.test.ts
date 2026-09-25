@@ -24,6 +24,18 @@ describe("expandView", () => {
     assert.deepEqual(r.nodes.map((n) => [n.path, n.value, n.exists]), [[`${ROOT}/my:title`, "Hello", true], [`${ROOT}/@version`, "1", true]]);
   });
 
+  it("shows conditional content only while its tests hold, and never hides what it cannot evaluate", () => {
+    const { inst } = setup();
+    const label = (id: string) => c(id, "label", { label: id });
+    const when = (test: string, negate = false) => ({ test, negate });
+    const cond = (id: string, all: unknown[]) => c(id, "conditional", { properties: { all, context: ROOT }, children: [label(id)] });
+    const shown = () =>
+      expandView(view([cond("a", [when("my:title = 'Hello'")]), cond("b", [when("my:title = 'Other'")]), cond("c", [when("my:title = 'Other'", true)]), cond("d", [when("not(")])]), inst).nodes.map((n) => n.label);
+    assert.deepEqual(shown(), ["a", "c", "d"]);
+    inst.setValue(`${ROOT}/my:title`, "Other");
+    assert.deepEqual(shown(), ["b", "d"]);
+  });
+
   it("marks missing nodes and shows them empty instead of failing", () => {
     const { inst } = setup();
     const [n] = expandView(view([c("x", "text", { binding: `${ROOT}/my:late` })]), inst).nodes;

@@ -2,6 +2,8 @@ import { describeBlob, type BlobInfo } from "../data/blobs.ts";
 import type { FormInstance } from "../data/instance.ts";
 import type { ControlDefinition, ControlType, Presentation, ViewDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
+import { evaluateXPath } from "../xpath/evaluator.ts";
+import { elementNode, toBoolean } from "../xpath/nodes.ts";
 
 /**
  * The rendering engine: turns a view (controls with abstract bindings) plus the current data into a
@@ -82,6 +84,7 @@ class Expander {
   /** Conditional content is inlined while its node exists (or does not, if negated) and dropped otherwise. */
   private nodeOrInline(c: ControlDefinition, suffix: string): RenderNode[] {
     if (c.type !== "conditional") return [this.node(c, suffix)];
+    if (Array.isArray(c.properties["all"])) return this.holds(c) ? this.nodes(c.children ?? [], suffix) : [];
     const path = typeof c.properties["path"] === "string" ? this.concretize(c.properties["path"]) : undefined;
     let exists = false;
     try {
@@ -90,6 +93,24 @@ class Expander {
       exists = false;
     }
     return exists !== (c.properties["negate"] === true) ? this.nodes(c.children ?? [], suffix) : [];
+  }
+
+  /** Whether every test of a conditional holds. A test that cannot be evaluated does not hide anything. */
+  private holds(c: ControlDefinition): boolean {
+    const context = typeof c.properties["context"] === "string" ? this.concretize(c.properties["context"]) : "/";
+    const env = { doc: this.instance.document, resolvePrefix: this.instance.namespaceResolver };
+    for (const cond of c.properties["all"] as { test: string; negate: boolean }[]) {
+      let result: boolean;
+      try {
+        const at = this.instance.select(context)[0];
+        if (!at || at.kind !== "element") return true;
+        result = toBoolean(evaluateXPath(cond.test, elementNode(at.el), env));
+      } catch {
+        return true;
+      }
+      if (result === cond.negate) return false;
+    }
+    return true;
   }
 
   private node(c: ControlDefinition, suffix: string): RenderNode {

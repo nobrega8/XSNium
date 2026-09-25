@@ -204,6 +204,15 @@ class ViewBuilder {
     return this.make("conditional", { properties: { path, negate }, children });
   }
 
+  /** Content shown only while every condition holds; the tests are evaluated against the data when the view is drawn. */
+  private tested(conditions: { test: string; negate: boolean }[], content: (XmlElement | string)[], ctx: string, depth: number): ControlDefinition {
+    const children: ControlDefinition[] = [];
+    const frame = new Frame();
+    this.walk(content, ctx, children, frame, depth);
+    this.flush(children, frame);
+    return this.make("conditional", { properties: { all: conditions, context: ctx }, children });
+  }
+
   /** Attach the look of the source element to a control, unless it already has one. */
   private styled(controls: ControlDefinition[] | undefined, el: XmlElement, tag: string): ControlDefinition[] | undefined {
     const first = controls?.[0];
@@ -258,10 +267,9 @@ class ViewBuilder {
       case "if": {
         this.flush(out, frame);
         const path = existenceTest(el.attrs["test"], ctx);
-        if (path === undefined) {
-          this.conditionals++;
-          this.walk(el.content, ctx, out, frame, depth);
-        } else out.push(this.conditional(path, false, el.content, ctx, depth));
+        if (path !== undefined) out.push(this.conditional(path, false, el.content, ctx, depth));
+        else if (el.attrs["test"] !== undefined) out.push(this.tested([{ test: el.attrs["test"], negate: false }], el.content, ctx, depth));
+        else this.walk(el.content, ctx, out, frame, depth);
         return;
       }
       case "choose": {
@@ -269,6 +277,17 @@ class ViewBuilder {
         const branches = el.children.filter((c) => isXsl(c, "when") || isXsl(c, "otherwise"));
         const first = branches[0];
         const path = first && isXsl(first, "when") ? existenceTest(first.attrs["test"], ctx) : undefined;
+        const whens = branches.filter((b) => isXsl(b, "when"));
+        // Anything beyond "is this node there, else the other content" is decided by evaluating the tests, in order.
+        if (whens.length > 0 && (path === undefined || whens.length > 1) && whens.every((w) => w.attrs["test"] !== undefined)) {
+          const earlier: { test: string; negate: boolean }[] = [];
+          for (const branch of branches) {
+            const own = isXsl(branch, "when") ? [{ test: branch.attrs["test"]!, negate: false }] : [];
+            out.push(this.tested([...own, ...earlier.map((c) => ({ ...c, negate: true }))], branch.content, ctx, depth));
+            if (own[0]) earlier.push(own[0]);
+          }
+          return;
+        }
         if (path === undefined) {
           // A test this reader cannot evaluate: show everything, as before.
           this.conditionals += branches.filter((b) => isXsl(b, "when")).length;
@@ -496,6 +515,16 @@ class ViewBuilder {
       case "section":
       case "optionalsection":
         return [this.make("section", { binding: ctx, properties: name === "optionalsection" ? { optional: true } : {}, children: this.container(el, ctx, depth) }, id)];
+      // Regions and lists only arrange their content; the data they show is bound by what is inside them.
+      case "horizontalregion":
+      case "verticalregion":
+      case "scrollingregion":
+      case "master":
+      case "detail":
+      case "bulletedlist":
+      case "numberedlist":
+      case "plainlist":
+        return [this.make("section", { binding: ctx, properties: { region: name }, children: this.container(el, ctx, depth) }, id)];
       case "choicegroup": {
         const ref = xdAttr(el, "ref");
         const binding = (ref !== undefined ? joinPath(ctx, ref) : undefined) ?? ctx;
