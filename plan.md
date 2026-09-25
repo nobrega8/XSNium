@@ -791,8 +791,8 @@ Microsoft publishes the open specification **[MS-IPFFX] InfoPath Form File Forma
 What it defines, and where XSNium stands:
 
 * **Processing instructions** `mso-infoPathSolution`, `mso-application` and `mso-infoPath-file-attachment-present`. Implemented: they are preserved verbatim on load, written on new instances started from a schema skeleton, and `initialView` and `solutionVersion` are exposed. `href` is never fetched. Once the attachment instruction is present it must never be removed.
-* **File attachment data format** (base64 with a small header: file name, size, metadata). Not implemented yet. Needed for the file attachment control. Parse defensively: bound the declared name and size, and never write the file to disk without a safe path.
-* **Embedded picture data format** (`base64Binary` fields behind inline picture controls). Not implemented yet.
+* **File attachment data format** (base64 with a small header: file name, size, metadata). Implemented (`src/data/blobs.ts`): parsed defensively with bounded name and size, dangerous extensions refused, names sanitised, and nothing is ever written to disk by the runtime.
+* **Embedded picture data format** (`base64Binary` fields behind inline picture controls). Implemented: only PNG, JPEG, GIF and BMP recognised by content; SVG is never accepted or served.
 * **Digital signature property structure**. Not implemented. Signatures must be treated as untrusted metadata; the specification itself says the captured information is non-trusted.
 * **Property promotion (XFP)** format. Out of scope for the MVP.
 
