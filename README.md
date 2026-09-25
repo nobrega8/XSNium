@@ -2,7 +2,7 @@
 
 XSNium opens, inspects and fills in legacy Microsoft InfoPath `.xsn` form templates without InfoPath or Microsoft Office installed.
 
-It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The goal is **compatibility and migration**, not a pixel-perfect clone of InfoPath.
+It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The first goal is **compatibility and migration**: correct data and behaviour for legacy forms. **Pixel-perfect rendering** of the original look is also a goal. It comes in stages after the MVP and is measured, not assumed (see [Rendering fidelity](#rendering-fidelity)).
 
 > **Status: early development.** The repository is public, but the project is young: APIs, the internal model and the CLI will change without notice. Package reading, manifest and schema parsing, the internal form model, the XML data model, view conversion and a first local web front end work. Rules and expressions are parsed but not executed yet. See the [Roadmap](#roadmap) for what is done and what is next.
 
@@ -161,15 +161,24 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 8-9 | UI bindings, repeating structures | Mostly covered by the above; hardening on more forms |
 | 10-12 | Validation, views, rules and expressions | Planned |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
+| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | Planned, alongside phases 7-13 |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
 **Today:** open a template, fill it in, and save the result as XML in the local web UI. Rules, calculated fields, validation messages, file attachments, embedded pictures and data connections are not executed yet.
 **MVP goal:** the same, with validation and the common rules working, on a set of real forms.
 **Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a. The final application is intended to ship as a desktop app for Windows, macOS and Linux, reusing the same core and UI.
 
+## Rendering fidelity
+
+The goal is for a form to look, at the size it was designed for, the way it did in InfoPath: same positions, sizes, fonts, colours, borders and column widths. Today the UI follows the structure and labels of a form in a clean modern layout, but does not yet apply the original styling.
+
+Fidelity is built as its own track: the view parser will keep a sanitised style layer, the front end will offer an original-layout mode next to the modern one, and progress will be measured with layout assertions, visual regression and comparisons against reference screenshots from real InfoPath. Text rasterisation and native widget chrome can differ by platform, and appearance data from a template is treated as untrusted like everything else. Details and stages are in [plan.md](plan.md), section 9a.
+
+If you have forms whose look matters, reference screenshots from InfoPath (with private data removed) are one of the most useful contributions.
+
 ## Not goals (for now)
 
-- Pixel-perfect InfoPath rendering
+- Pixel-perfect rendering in the first MVP (it is a later goal, see [Rendering fidelity](#rendering-fidelity))
 - Running InfoPath custom code, VBScript or ActiveX
 - Full SharePoint, SQL or SOAP integration in the first version
 - Modifying an existing `.xsn` in place

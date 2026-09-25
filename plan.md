@@ -10,7 +10,7 @@ The application is intended for organizations that still depend on existing Info
 
 The application must treat `.xsn` files as a legacy input format and translate their structure into a modern internal representation.
 
-This is **not** intended to be a pixel-perfect clone of Microsoft InfoPath.
+The long-term goal includes **pixel-perfect rendering** of existing forms: a form should look, at its own design size, the way it looked in InfoPath (section 9a). Fidelity is pursued in stages and measured, and it never comes at the cost of security or of data compatibility. The first versions prioritise correct data and behaviour over exact appearance.
 
 The architectural goal is:
 
@@ -41,6 +41,10 @@ The first usable version must be able to:
 
 The MVP should work entirely without Microsoft Office or Microsoft InfoPath.
 
+## Rendering fidelity (after the MVP)
+
+Forms should eventually render pixel-perfect against their original InfoPath appearance. This is a goal, not a non-goal, but it is a track of its own that runs alongside the later phases and is not required for the MVP. See section 9a for what it means, how it is built and how it is tested.
+
 ---
 
 # 3. Non-Goals
@@ -51,7 +55,7 @@ The following are explicitly outside the initial MVP:
 
 * Full InfoPath Designer compatibility (opening and editing InfoPath's own design-time data).
 * Form authoring (creating or editing templates). This is a planned later stage, see section 37a, but it is not part of the MVP.
-* Pixel-perfect rendering of every InfoPath control.
+* Pixel-perfect rendering in the first MVP. It is a goal for later stages (section 9a); the MVP only needs correct data and behaviour.
 * Full SharePoint integration.
 * Full SQL integration.
 * Full Web Service integration.
@@ -333,6 +337,53 @@ Modern UI Component
 ```
 
 Do not create one-off rendering code for each individual XSN.
+
+---
+
+# 9a. Rendering Fidelity (pixel-perfect goal)
+
+## Definition
+
+At the size the form was designed for (the manifest records the view width), every control and every table cell should sit where InfoPath put it, with the same size, fonts, colours, borders, padding and column widths. Measured on the reference renders, layout boxes should agree within about one pixel at 100% zoom.
+
+What this does **not** promise:
+
+* Identical anti-aliasing or text rasterisation. Text metrics depend on the platform and on the fonts installed, so the font family and size are preserved and missing fonts fall back visibly and are reported.
+* Identical native widget chrome (dropdown arrows, date picker popups, scroll bars). Controls keep the size the form specified; their internals may follow the platform unless a later stage restyles them.
+
+## Where the information is
+
+The view XSL already carries the appearance: inline `style` attributes, `colgroup` and `col` widths, table and cell attributes (`colSpan`, `rowSpan`, `align`, `vAlign`), `font` tags, the `controlStyle` stylesheet in the head, and package images. The view parser currently keeps only the structure, the labels and the bindings and drops this appearance data.
+
+## Design
+
+* Add an allow-listed **style layer** to the internal model: a sanitised set of CSS properties per layout node and control (width, height, min-height, margin, padding, border, background, colour, font, text-align, vertical-align, white-space and similar), plus column widths and table attributes, and the view's own width and page style.
+* Sanitise it as untrusted input. Only known properties with valid lengths, colours and keywords are kept. No `url()` except references to package resources, no `expression()`, `behavior:` or `-moz-binding`, no `@import`, and nothing that loads an external resource. IE-specific properties are mapped where they have a standard equivalent and otherwise ignored and counted in the compatibility report.
+* Apply it in the front end without inline `style` attributes, so the strict content security policy stays: through the CSSOM or a generated stylesheet.
+* Offer both looks: an **original layout** mode that follows the style layer and a **modern layout** mode that stays responsive. The original layout is a rendering option of the same model, not a separate code path per form.
+* Keep the layers separate: the view parser extracts the style layer, the rendering engine passes it through, and only the front end applies it.
+
+## How it is tested
+
+* **Layout assertions first.** Compare the measured boxes of rendered elements (from the browser, via Playwright) with the values in the style layer. These are stable and catch most regressions.
+* **Visual regression** on synthetic fixtures that cover each control and layout feature, with stored screenshots and a small tolerance.
+* **Reference comparison** against screenshots of the same forms in real InfoPath, contributed and sanitised, with a per-form report of what differs. Real forms are never committed (see the fixture rules).
+* Track fidelity per control type in a catalogue, so progress is visible and regressions are attributed.
+
+## Stages
+
+1. **F1** Table layout: column widths, cell spans, alignment, view width and page background.
+2. **F2** Box styles: sizes, margins, padding, borders and backgrounds on controls and sections.
+3. **F3** Text: font families, sizes, weights, colours and line heights, with reporting of missing fonts.
+4. **F4** Control chrome: text boxes, checkboxes, radios, dropdowns and date pickers sized and styled like the original.
+5. **F5** Conditional formatting (depends on rules and expressions, Phase 12).
+6. **F6** Print view and PDF output (see section 21).
+
+## Constraints
+
+* Security comes first: appearance data is untrusted, sanitised, and never allowed to fetch anything.
+* Fidelity must not break the modern layout mode or basic accessibility (keyboard use, labels, focus).
+* Do not tune the renderer to one form. Fixes must be general and covered by a fixture that shows the feature.
 
 ---
 
@@ -1053,6 +1104,13 @@ Phase 15
 SharePoint integration
 ```
 
+```text
+Fidelity track (alongside Phases 7 to 13, see section 9a)
+────────────────────────────────────────────────────────
+F1 tables and view width, F2 box styles, F3 text, F4 control chrome,
+F5 conditional formatting, F6 print and PDF
+```
+
 Do not jump directly to SharePoint integration.
 
 ```text
@@ -1110,6 +1168,10 @@ Add tests for every newly supported InfoPath feature.
 ### Rule 10
 
 Do not implement speculative functionality before examining real XSN examples.
+
+### Rule 11
+
+Appearance data in a template (styles, fonts, images, layout attributes) is untrusted input. Sanitise it, keep only what is allow-listed, and never let it load an external resource.
 
 ---
 
