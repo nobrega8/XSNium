@@ -103,8 +103,12 @@ class Expander {
   /** Whether every test of a conditional holds. A test that cannot be evaluated does not hide anything. */
   private holds(c: ControlDefinition): boolean {
     const context = typeof c.properties["context"] === "string" ? this.concretize(c.properties["context"]) : "/";
+    return this.testsHold(c.properties["all"] as { test: string; negate: boolean }[], context);
+  }
+
+  private testsHold(conditions: { test: string; negate: boolean }[], context: string): boolean {
     const env = { doc: this.instance.document, resolvePrefix: this.instance.namespaceResolver };
-    for (const cond of c.properties["all"] as { test: string; negate: boolean }[]) {
+    for (const cond of conditions) {
       let result: boolean;
       try {
         const at = this.instance.select(context)[0];
@@ -194,8 +198,11 @@ class Expander {
       canAdd: info.max === "unbounded" || info.count < info.max,
       canRemove: info.count > info.min,
     };
+    const rowConditions = Array.isArray(c.properties["rowConditions"]) ? (c.properties["rowConditions"] as { test: string; negate: boolean }[]) : undefined;
+    if (rowConditions) this.dynamic = true;
     for (let i = 0; i < info.count; i++) {
       const rowPath = `${base}[${i + 1}]`;
+      if (rowConditions && !this.testsHold(rowConditions, rowPath)) continue;
       this.subs.push({ from: c.binding ?? "", to: rowPath });
       try {
         out.rows.push({ path: rowPath, children: this.nodes(c.children ?? [], `${suffix}#${i + 1}`) });

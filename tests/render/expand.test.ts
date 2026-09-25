@@ -59,6 +59,21 @@ describe("expandView", () => {
     ]);
   });
 
+  it("keeps only the rows whose conditions hold", () => {
+    const { inst } = setup();
+    inst.addRow(`${ROOT}/my:items`);
+    inst.setValue(`${ROOT}/my:items[2]/my:name`, "second");
+    const section = c("rs", "repeatingSection", {
+      binding: `${ROOT}/my:items`,
+      properties: { rowConditions: [{ test: "my:name = 'second'", negate: false }] },
+      children: [c("name", "text", { binding: `${ROOT}/my:items/my:name` })],
+    });
+    const r = expandView(view([section]), inst);
+    assert.deepEqual(r.nodes[0]?.rows?.map((row) => row.path), [`${ROOT}/my:items[2]`]);
+    assert.equal(r.nodes[0]?.repeat?.count, 2, "the rows still exist in the data");
+    assert.equal(r.dynamic, true);
+  });
+
   it("gives every rendered control a unique id, including across rows", () => {
     const { inst } = setup();
     inst.addRow(`${ROOT}/my:items`);

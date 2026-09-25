@@ -210,6 +210,12 @@ class ViewBuilder {
     const frame = new Frame();
     this.walk(content, ctx, children, frame, depth);
     this.flush(children, frame);
+    // A condition around a repeating structure that repeats the very node it tests is decided once per row.
+    const only = children.length === 1 ? children[0]! : undefined;
+    if (only && (only.type === "repeatingSection" || only.type === "repeatingTable") && only.binding === ctx && only.properties["rowConditions"] === undefined) {
+      only.properties["rowConditions"] = conditions;
+      return only;
+    }
     return this.make("conditional", { properties: { all: conditions, context: ctx }, children });
   }
 

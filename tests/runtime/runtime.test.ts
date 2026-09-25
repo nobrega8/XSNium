@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { FormRuntime, buildFormDefinition, createInstance, openXsn } from "../../src/index.ts";
+import { FormRuntime, buildFormDefinition, createInstance, expandView, openXsn, type RenderNode } from "../../src/index.ts";
 import { runtimeFixture } from "../helpers/runtime-form.ts";
 
 const P = "/r:order";
@@ -308,5 +308,24 @@ describe("what the compatibility report says about rules and calculations", () =
     const rules = feature("Rules");
     assert.equal(rules?.support, "partial");
     assert.match(rules?.detail ?? "", /nosuchfunction|unknown:fn|dialogBoxMessageAction/);
+  });
+});
+
+describe("master/detail selection in a real template", () => {
+  const file = path.resolve("example_files", "Expense Report Template.xsn");
+  it("shows an item's details after its button selects it", { skip: !existsSync(file) }, () => {
+    const pkg = openXsn(readFileSync(file));
+    const form = buildFormDefinition(pkg);
+    const rt = new FormRuntime(createInstance(pkg, form), form);
+    rt.initialize();
+    const all = (ns: RenderNode[]): RenderNode[] => ns.flatMap((n) => [n, ...all(n.children ?? []), ...all((n.rows ?? []).flatMap((r) => r.children))]);
+    const nodes = () => all(expandView(form.views[0]!, rt.instance).nodes);
+    rt.addRow("/my:expenseReport/my:items/my:item");
+    const shown = () => nodes().filter((n) => n.type === "repeatingSection").flatMap((n) => n.rows ?? []).map((r) => r.path);
+    assert.deepEqual(shown(), [], "nothing selected yet");
+    const select = nodes().filter((n) => n.type === "button" && n.properties["ruleSets"])[1]!;
+    rt.runRuleSet((select.properties["ruleSets"] as string[])[0]!, select.path!);
+    assert.equal(rt.instance.getValue("/my:expenseReport/my:items/my:itemPosition"), "1");
+    assert.deepEqual(shown(), ["/my:expenseReport/my:items/my:item[2]"], "only the selected item shows details");
   });
 });
