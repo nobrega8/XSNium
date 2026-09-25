@@ -719,6 +719,22 @@ The XML should be validated against the form schema where possible.
 
 ---
 
+# 22a. Instance File Format Reference (MS-IPFFX)
+
+Microsoft publishes the open specification **[MS-IPFFX] InfoPath Form File Format**, which describes the XML *form file* (the instance), not the `.xsn` template. It is the reference for anything the data layer reads or writes.
+
+What it defines, and where XSNium stands:
+
+* **Processing instructions** `mso-infoPathSolution`, `mso-application` and `mso-infoPath-file-attachment-present`. Implemented: they are preserved verbatim on load, written on new instances started from a schema skeleton, and `initialView` and `solutionVersion` are exposed. `href` is never fetched. Once the attachment instruction is present it must never be removed.
+* **File attachment data format** (base64 with a small header: file name, size, metadata). Not implemented yet. Needed for the file attachment control. Parse defensively: bound the declared name and size, and never write the file to disk without a safe path.
+* **Embedded picture data format** (`base64Binary` fields behind inline picture controls). Not implemented yet.
+* **Digital signature property structure**. Not implemented. Signatures must be treated as untrusted metadata; the specification itself says the captured information is non-trusted.
+* **Property promotion (XFP)** format. Out of scope for the MVP.
+
+Real templates also showed constructs the manifest parser now models but the runtime does not yet execute: rule sets triggered by data changes or by buttons, custom validation conditions, secondary data sources (for example a SharePoint list feeding a dropdown) and submit adapters. They are reported in the compatibility report and executed in Phases 12 and 14.
+
+---
+
 # 23. Error Handling
 
 Errors should be explicit and useful.

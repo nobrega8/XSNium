@@ -4,7 +4,7 @@ XSNium opens, inspects and (soon) renders and edits legacy Microsoft InfoPath `.
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The goal is **compatibility and migration**, not a pixel-perfect clone of InfoPath.
 
-> **Status: early development.** Package reading, manifest and schema parsing, the internal form model and the XML data model (reading, writing and repeating rows by path) and the conversion of InfoPath views into controls work. The renderer and the editor UI are not implemented yet. See [Roadmap](#roadmap).
+> **Status: early development.** Package reading, manifest and schema parsing, the internal form model and the XML data model (reading, writing and repeating rows by path) the conversion of InfoPath views into controls, and reading of rules, custom validation and data connections work. Rules and expressions are parsed but not executed yet. The renderer and the editor UI are not implemented yet. See [Roadmap](#roadmap).
 
 > XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
 
@@ -124,6 +124,10 @@ npm run typecheck # TypeScript
 Tests cover the package reader, manifest, schema and form builder, plus malformed and hostile inputs (truncated cabinets, path traversal, decompression bombs, XXE, billion laughs, schema expansion bombs).
 
 Tests that use real-world templates read `.xsn` files from `example_files/`. That folder is git-ignored because real forms often contain company data, and those tests are skipped when it is empty. Please do not commit real templates; use sanitised or synthetic fixtures instead.
+
+## References
+
+- [MS-IPFFX] InfoPath Form File Format, Microsoft Open Specifications (describes the XML form file: processing instructions, file attachments, embedded pictures, signatures).
 
 ## Roadmap
 
