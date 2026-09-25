@@ -4,6 +4,11 @@ import type {
   DataAdapterKind,
   DetectedFeature,
   ManifestDataAdapter,
+  ManifestDataObject,
+  ManifestErrorCondition,
+  ManifestEventHandler,
+  ManifestRuleSet,
+  ManifestButton,
   ManifestEditBinding,
   ManifestModel,
   ManifestView,
@@ -42,6 +47,13 @@ function parseBindings(view: XmlElement): ManifestEditBinding[] {
   });
 }
 
+function parseButtons(view: XmlElement): ManifestButton[] {
+  const unbound = childOf(view, XSF, "unboundControls");
+  return childrenOf(unbound ?? view, XSF, "button")
+    .filter(() => unbound !== undefined)
+    .map((b) => ({ name: b.attrs["name"] ?? "", ruleSets: childrenOf(b, XSF, "ruleSetAction").map((a) => a.attrs["ruleSet"] ?? "") }));
+}
+
 function parseViews(root: XmlElement): { views: ManifestView[]; defaultView: string | undefined } {
   const container = childOf(root, XSF, "views");
   if (!container) return { views: [], defaultView: undefined };
@@ -54,9 +66,73 @@ function parseViews(root: XmlElement): { views: ManifestView[]; defaultView: str
       isDefault: name === defaultView,
       file: childOf(v, XSF, "mainpane")?.attrs["transform"],
       bindings: parseBindings(v),
+      buttons: parseButtons(v),
     };
   });
   return { views, defaultView };
+}
+
+function isAdapter(el: XmlElement): boolean {
+  return /adapter/i.test(el.local);
+}
+
+function parseAdapter(el: XmlElement, role: ManifestDataAdapter["role"]): ManifestDataAdapter {
+  return { kind: adapterKind(el.local), name: el.attrs["name"] ?? "", submitAllowed: yes(el.attrs["submitAllowed"]), role };
+}
+
+/** Adapters can sit in the adapter list, in the submit block, and in the query of a secondary data source. */
+function parseAdapters(root: XmlElement): { adapters: ManifestDataAdapter[]; dataObjects: ManifestDataObject[] } {
+  const adapters = (childOf(root, XSF, "dataAdapters")?.children ?? []).filter(isAdapter).map((a) => parseAdapter(a, "adapter"));
+  for (const a of childOf(root, XSF, "submit")?.children ?? []) if (isAdapter(a)) adapters.push(parseAdapter(a, "submit"));
+
+  const dataObjects: ManifestDataObject[] = [];
+  for (const obj of childOf(root, XSF, "dataObjects")?.children ?? []) {
+    if (obj.local !== "dataObject") continue;
+    dataObjects.push({ name: obj.attrs["name"] ?? "", schema: obj.attrs["schema"], queryOnLoad: yes(obj.attrs["initOnLoad"]) });
+    for (const a of childOf(obj, XSF, "query")?.children ?? []) {
+      if (isAdapter(a)) adapters.push({ ...parseAdapter(a, "query"), dataObject: obj.attrs["name"] ?? "" });
+    }
+  }
+  return { adapters, dataObjects };
+}
+
+function parseRuleSets(root: XmlElement): ManifestRuleSet[] {
+  return (childOf(root, XSF, "ruleSets")?.children ?? [])
+    .filter((rs) => rs.local === "ruleSet")
+    .map((rs) => ({
+      name: rs.attrs["name"] ?? "",
+      rules: childrenOf(rs, XSF, "rule").map((r) => ({
+        caption: r.attrs["caption"],
+        condition: r.attrs["condition"],
+        enabled: r.attrs["isEnabled"] === undefined || yes(r.attrs["isEnabled"]),
+        actions: r.children.map((a) => ({ kind: a.local, attrs: { ...a.attrs } })),
+      })),
+    }));
+}
+
+function parseEventHandlers(root: XmlElement): ManifestEventHandler[] {
+  return (childOf(root, XSF, "domEventHandlers")?.children ?? [])
+    .filter((h) => h.local === "domEventHandler")
+    .map((h) => ({
+      match: h.attrs["match"] ?? "",
+      ruleSets: childrenOf(h, XSF, "ruleSetAction").map((a) => a.attrs["ruleSet"] ?? ""),
+      // Anything other than a rule set trigger (or a named handler object) is custom code.
+      hasCode: h.attrs["handlerObject"] !== undefined || h.children.some((c) => c.local !== "ruleSetAction"),
+    }));
+}
+
+function parseErrorConditions(root: XmlElement): ManifestErrorCondition[] {
+  return (childOf(root, XSF, "customValidation")?.children ?? [])
+    .filter((c) => c.local === "errorCondition")
+    .map((c) => {
+      const message = childOf(c, XSF, "errorMessage");
+      return {
+        match: c.attrs["match"] ?? "",
+        expressionContext: c.attrs["expressionContext"],
+        expression: c.attrs["expression"] ?? "",
+        message: message?.attrs["shortMessage"] ?? (message ? message.text.trim() || undefined : undefined),
+      };
+    });
 }
 
 function detectFeatures(root: XmlElement, model: Omit<ManifestModel, "features">): DetectedFeature[] {
@@ -71,14 +147,18 @@ function detectFeatures(root: XmlElement, model: Omit<ManifestModel, "features">
       detail: `${el.attrs["language"] ?? "managed"} code is never executed`,
     });
   }
-  if (childOf(root, XSF, "domEventHandlers")) {
-    add({ feature: "Event handlers", support: "unsupported", location: MANIFEST_LOCATION });
+  if (model.eventHandlers.some((h) => h.hasCode)) {
+    add({ feature: "Event handlers with custom code", support: "unsupported", location: MANIFEST_LOCATION });
   }
-  if (childOf(root, XSF, "ruleSets")) {
-    add({ feature: "Rules", support: "partial", location: MANIFEST_LOCATION });
+  if (model.ruleSets.length > 0) {
+    const rules = model.ruleSets.reduce((n, rs) => n + rs.rules.length, 0);
+    add({ feature: "Rules", support: "partial", location: MANIFEST_LOCATION, detail: `${rules} rule(s) in ${model.ruleSets.length} rule set(s)` });
   }
-  if (childOf(root, XSF, "customValidation")) {
-    add({ feature: "Custom validation", support: "partial", location: MANIFEST_LOCATION });
+  if (model.errorConditions.length > 0) {
+    add({ feature: "Custom validation", support: "partial", location: MANIFEST_LOCATION, detail: `${model.errorConditions.length} condition(s)` });
+  }
+  for (const o of model.dataObjects) {
+    add({ feature: "Secondary data source", support: "unsupported", location: MANIFEST_LOCATION, detail: o.name });
   }
   if (model.calculations.length > 0) {
     add({
@@ -143,11 +223,7 @@ export function parseManifest(xml: Buffer | string): ManifestModel {
       refresh: c.attrs["refresh"],
     }));
 
-  const dataAdapters: ManifestDataAdapter[] = (childOf(root, XSF, "dataAdapters")?.children ?? []).map((a) => ({
-    kind: adapterKind(a.local),
-    name: a.attrs["name"] ?? "",
-    submitAllowed: yes(a.attrs["submitAllowed"]),
-  }));
+  const { adapters: dataAdapters, dataObjects } = parseAdapters(root);
 
   const upgradeEl = childOf(childOf(root, XSF, "documentVersionUpgrade") ?? root, XSF, "useTransform");
   const initial = childOf(childOf(root, XSF, "fileNew") ?? root, XSF, "initialXmlDocument");
@@ -168,6 +244,10 @@ export function parseManifest(xml: Buffer | string): ManifestModel {
     defaultView,
     calculations,
     dataAdapters,
+    dataObjects,
+    ruleSets: parseRuleSets(root),
+    eventHandlers: parseEventHandlers(root),
+    errorConditions: parseErrorConditions(root),
     upgrade: upgradeEl
       ? {
           transform: upgradeEl.attrs["transform"] ?? "",

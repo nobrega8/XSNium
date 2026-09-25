@@ -19,6 +19,7 @@ export function readManifest(pkg: XsnPackage): ManifestReadResult {
     ...manifest.files.map((f): [string, string] => ["declared file", f.name]),
     ...manifest.schemas.map((s): [string, string] => ["schema", s.file]),
     ...manifest.views.map((v): [string, string | undefined] => ["view", v.file]),
+    ...manifest.dataObjects.map((o): [string, string | undefined] => ["data source schema", o.schema]),
     ["initial document", manifest.initialDocument],
     ["upgrade transform", manifest.upgrade?.transform],
   ];
