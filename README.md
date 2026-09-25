@@ -4,7 +4,7 @@ XSNium opens, inspects and (soon) renders and edits legacy Microsoft InfoPath `.
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The goal is **compatibility and migration**, not a pixel-perfect clone of InfoPath.
 
-> **Status: early development.** Package reading, manifest and schema parsing, the internal form model and the XML data model (reading, writing and repeating rows by path) work. Rendering and the editor UI are not implemented yet. See [Roadmap](#roadmap).
+> **Status: early development.** Package reading, manifest and schema parsing, the internal form model and the XML data model (reading, writing and repeating rows by path) and the conversion of InfoPath views into controls work. The renderer and the editor UI are not implemented yet. See [Roadmap](#roadmap).
 
 > XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
 
@@ -18,6 +18,7 @@ An `.xsn` is a template, not a program. XSNium treats it as untrusted input and 
    -> manifest parser     views, schemas, data connections, features
    -> schema parser       elements, types, repetition, constraints
    -> form definition     the application's own representation
+   -> view parser         XSL view -> controls, labels, layout, bindings
    -> data instance       XML data, edited by path (values, repeating rows)
    -> renderer / editor   (planned)
    -> XML instance        the data the user fills in
@@ -92,6 +93,7 @@ src/
   manifest/   manifest.xsf -> ManifestModel, feature detection
   schema/     XSD -> SchemaModel
   form/       FormDefinition: the internal model the rest of the app uses
+  view/       InfoPath view (XSL) -> controls, without running the XSL
   data/       XML data documents, path subset, FormInstance (edit, rows, save)
   cli/        xsnium command
 tests/        unit, security and real-world fixture tests
@@ -132,7 +134,8 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 3 | XSD schema parser | Done |
 | 4 | Internal form model | Done |
 | 5 | XML data model and path binding | Done (path subset; full expressions come with Phase 12) |
-| 6-9 | Controls, rendering, UI bindings | Next |
+| 6 | Controls and view conversion | Done (all bindings of the sample form resolve) |
+| 7-9 | Rendering engine, UI bindings | Next |
 | 10-12 | Validation, views, rules | Planned |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { XsnError, buildFormDefinition, openXsn, readManifest } from "../index.ts";
+import { XsnError, buildFormDefinition, openXsn, readManifest, type ControlDefinition } from "../index.ts";
 
 const USAGE = `Usage:
   xsnium inspect <form.xsn>            List package contents and diagnostics
@@ -36,10 +36,19 @@ function model(file: string): number {
   const summary = {
     ...form,
     dataSources: form.dataSources.map(({ schema, ...rest }) => ({ ...rest, ...(schema ? { schemaRoot: schema.name } : {}) })),
+    views: form.views.map(({ controls, boundPaths, ...rest }) => ({
+      ...rest,
+      boundPaths: boundPaths.length,
+      controls: countBy(flatten(controls).map((c) => c.type)),
+    })),
     validations: { count: form.validations.length, byType: countBy(form.validations.map((v) => v.type)) },
   };
   console.log(JSON.stringify(summary, null, 2));
   return 0;
+}
+
+function flatten(controls: ControlDefinition[]): ControlDefinition[] {
+  return controls.flatMap((c) => [c, ...flatten(c.children ?? [])]);
 }
 
 function countBy(values: string[]): Record<string, number> {
