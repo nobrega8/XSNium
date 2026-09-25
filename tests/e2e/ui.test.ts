@@ -424,6 +424,9 @@ describe("printing in a real browser", () => {
     try {
       assert.equal(await shown(".toolbar"), "none");
       assert.equal(await page.locator(".page").evaluate((e) => getComputedStyle(e).borderTopWidth), "0px");
+      // Fields are outlined on paper, so they do not vanish into the form's background.
+      assert.equal(await page.locator(".page input").first().evaluate((e) => getComputedStyle(e).borderTopWidth), "1px");
+      assert.notEqual(await page.locator(".page input").first().evaluate((e) => getComputedStyle(e).borderTopStyle), "none");
       const pdf = await page.pdf({ format: "A4", printBackground: true });
       assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
       assert.ok(pdf.length > 1000);

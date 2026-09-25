@@ -17,7 +17,7 @@
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 .toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 700; margin-right: 8px; }
+.brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; margin-right: 8px; }
 .toolbar button, .toolbar .button, .toolbar select { font: inherit; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--text); cursor: pointer; }
 .toolbar button:disabled, .toolbar .button.disabled { opacity: .5; cursor: default; }
 #view-label { color: var(--muted); }
@@ -99,5 +99,10 @@ label.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1
   .page *, .page { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .invalid { outline: 0 !important; box-shadow: none !important; }
   tr, .row { break-inside: avoid; }
-  input, select, textarea { border-color: #999; }
+  /* Fields are white on a light form, so without an outline they disappear on paper. */
+  .page input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="file"]):not([hidden]),
+  .page select, .page textarea { border: 1px solid #6b6b6b !important; border-radius: 0 !important; background: #fff !important; box-shadow: none !important; }
+  .page input[type="checkbox"], .page input[type="radio"] { outline: 1px solid #6b6b6b; }
+  .page select { -webkit-appearance: none; appearance: none; }
+  .page button { border: 1px solid #6b6b6b !important; }
 }
