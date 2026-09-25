@@ -106,6 +106,9 @@ class Expander {
       return out;
     }
 
+    // A button runs its rules in the data node it sits in, which may be a particular row.
+    if (c.type === "button" && typeof c.properties["context"] === "string") out.path = this.concretize(c.properties["context"]);
+
     if (c.binding !== undefined && VALUE_TYPES.has(c.type)) {
       const path = this.concretize(c.binding);
       out.path = path;

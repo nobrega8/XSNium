@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
+import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
 let running: RunningServer;
@@ -188,5 +189,69 @@ describe("package images", () => {
     await api("POST", "/api/open", sampleXsnBytes([{ name: "logo.png", data: PNG }]));
     assert.equal((await fetch(`${base}/api/resource?name=logo.png&t=${running.token}`)).status, 200);
     assert.equal((await fetch(`${base}/api/state?t=${running.token}`)).status, 401);
+  });
+});
+
+describe("the form's runtime through the API", () => {
+  const openRuntime = () => api("POST", "/api/open", runtimeXsnBytes());
+  const P = "/r:order";
+
+  it("reports what an edit changed, with the new values", async () => {
+    await openRuntime();
+    const res = await json("/api/set", { path: `${P}/r:qty`, value: "10" });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(["qty", "total", "tax", "grand"].every((f) => body.changed.includes(`${P}/r:${f}`)), body.changed.join(", "));
+    assert.equal(body.values[`${P}/r:total`], "105");
+    assert.equal(body.values[`${P}/r:grand`], "116");
+    assert.deepEqual(body.events, []);
+  });
+
+  it("has calculated fields ready as soon as a form is opened", async () => {
+    await openRuntime();
+    assert.match(await (await api("GET", "/api/xml")).text(), /<r:total>21<\/r:total>/);
+  });
+
+  it("fires rules and returns what the form asked the page to do", async () => {
+    await openRuntime();
+    await json("/api/set", { path: `${P}/r:status`, value: "closed" });
+    const res = await json("/api/rules", { ruleSet: "buttonRules" });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.events.map((e: { type: string }) => e.type), ["switchView", "submit", "unsupported"]);
+    assert.equal(body.values[`${P}/r:status`], "open");
+  });
+
+  it("runs a rule set in a given context node", async () => {
+    await openRuntime();
+    const body = await (await json("/api/rules", { ruleSet: "rowButton", context: `${P}/r:lines[2]` })).json();
+    assert.equal(body.values[`${P}/r:lines[2]/r:amount`], "99");
+  });
+
+  it("validates the data", async () => {
+    await openRuntime();
+    assert.deepEqual((await (await api("GET", "/api/validate")).json()).issues, []);
+    await json("/api/set", { path: `${P}/r:code`, value: "nope" });
+    const { issues } = await (await api("GET", "/api/validate")).json();
+    assert.deepEqual(issues.map((i: { path: string; type: string }) => [i.path, i.type]), [[`${P}/r:code`, "pattern"]]);
+  });
+
+  it("checks the input of the new endpoints", async () => {
+    await openRuntime();
+    assert.equal((await json("/api/rules", {})).status, 400);
+    assert.equal((await json("/api/rules", { ruleSet: 5 })).status, 400);
+    assert.equal((await api("GET", "/api/validate", undefined, { "X-XSNium-Token": "wrong" })).status, 401);
+  });
+
+  it("needs a form before it can validate or run rules", async () => {
+    const fresh = await startServer();
+    try {
+      const h = { "X-XSNium-Token": fresh.token };
+      assert.equal((await fetch(`${fresh.url}/api/validate`, { headers: h })).status, 409);
+      assert.equal((await fetch(`${fresh.url}/api/rules`, { method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: JSON.stringify({ ruleSet: "x" }) })).status, 409);
+    } finally {
+      await fresh.close();
+    }
   });
 });

@@ -112,7 +112,10 @@ function manifest(extra: string): string {
   </xsf:files></xsf:package>
   <xsf:documentSchemas><xsf:documentSchema rootSchema="yes" location="${RT} myschema.xsd"></xsf:documentSchema></xsf:documentSchemas>
   <xsf:fileNew><xsf:initialXmlDocument caption="Runtime" href="template.xml"></xsf:initialXmlDocument></xsf:fileNew>
-  <xsf:views default="First"><xsf:view name="First"><xsf:mainpane transform="view1.xsl"></xsf:mainpane></xsf:view><xsf:view name="Second"><xsf:mainpane transform="view2.xsl"></xsf:mainpane></xsf:view></xsf:views>
+  <xsf:views default="First">
+    <xsf:view name="First"><xsf:mainpane transform="view1.xsl"></xsf:mainpane><xsf:unboundControls><xsf:button name="BTN"><xsf:ruleSetAction ruleSet="buttonRules"></xsf:ruleSetAction></xsf:button></xsf:unboundControls></xsf:view>
+    <xsf:view name="Second"><xsf:mainpane transform="view2.xsl"></xsf:mainpane></xsf:view>
+  </xsf:views>
   ${extra}
 </xsf:xDocumentClass>`;
 }
@@ -130,8 +133,28 @@ export function runtimeXsnBytes(template: string = TEMPLATE, options: { cycle?: 
     { name: "manifest.xsf", data: manifest(rules) },
     { name: "myschema.xsd", data: SCHEMA },
     { name: "template.xml", data: template },
+    { name: "view1.xsl", data: RUNTIME_VIEW },
+    { name: "view2.xsl", data: RUNTIME_VIEW },
   ]);
 }
+
+const field = (id: string, binding: string) => `<span xd:xctname="PlainText" xd:CtrlId="${id}" xd:binding="${binding}"/>`;
+
+/** A view over the form above: inputs, calculated fields, a dropdown, a button and a repeating table. */
+export const RUNTIME_VIEW = `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xd="http://schemas.microsoft.com/office/infopath/2003" xmlns:r="${RT}">
+  <xsl:template match="r:order"><html><body>
+    <div>Name ${field("NAME", "r:name")}</div>
+    <div>Qty ${field("QTY", "r:qty")} Price ${field("PRICE", "r:price")}</div>
+    <div>Total ${field("TOTAL", "r:total")} Grand ${field("GRAND", "r:grand")}</div>
+    <div>Status <select xd:xctname="dropdown" xd:CtrlId="STATUS" xd:binding="r:status"><option value="open">open</option><option value="closed">closed</option></select>
+      Note ${field("NOTE", "r:note")} Code ${field("CODE", "r:code")}</div>
+    <div><button xd:xctname="Button" xd:CtrlId="BTN">Reset</button></div>
+    <table><tbody xd:xctname="RepeatingTable"><xsl:for-each select="r:lines"><tr>
+      <td>${field("AMOUNT", "r:amount")}</td><td>${field("COUNT", "r:count")}</td><td>${field("LINETOTAL", "r:lineTotal")}</td>
+    </tr></xsl:for-each></tbody></table>
+    <div>Lines total ${field("LT", "r:linesTotal")}</div>
+  </body></html></xsl:template>
+</xsl:stylesheet>`;
 
 export interface RuntimeFixture {
   form: FormDefinition;

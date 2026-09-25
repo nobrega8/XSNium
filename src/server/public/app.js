@@ -71,8 +71,8 @@ function el(tag, className, text) {
 
 async function save(path, value, revert) {
   try {
-    await post("/api/set", { path, value });
-    say("Edited");
+    const res = await post("/api/set", { path, value });
+    await applyOutcome(await res.json(), { edited: path });
   } catch (err) {
     say(err.message, true);
     revert?.();
@@ -81,11 +81,97 @@ async function save(path, value, revert) {
 
 async function rows(path, op, index) {
   try {
-    await post("/api/rows", { path, op, index });
-    await refresh();
+    const res = await post("/api/rows", { path, op, index });
+    await applyOutcome(await res.json(), { structure: true });
   } catch (err) {
     say(err.message, true);
   }
+}
+
+// What the form did in response to an edit: values it changed elsewhere, things it asked the page to do,
+// and anything it could not run. Changed values are patched in place so focus and clicks are not lost.
+async function applyOutcome(outcome, { structure = false, edited } = {}) {
+  handleEvents(outcome.events ?? []);
+  // A changed value cannot change which nodes exist, so only rows being added or removed (or a rule set that
+  // may do anything) needs the page redrawn. Values the view does not show have nothing to patch.
+  for (const [path, value] of Object.entries(outcome.values ?? {})) {
+    if (path !== edited) patchValue(path, value);
+  }
+  if (structure) await refresh();
+  else await validate();
+  const issue = (outcome.issues ?? []).find((i) => i.level === "error") ?? (outcome.issues ?? []).find((i) => i.level === "warning");
+  if (issue) say(issue.message, issue.level === "error");
+  else if (!structure) say("Edited");
+}
+
+function elementsAt(path) {
+  return [...document.querySelectorAll("[data-path]")].filter((e) => e.dataset.path === path);
+}
+
+function patchValue(path, value) {
+  const targets = elementsAt(path);
+  if (targets.length === 0) return false;
+  for (const target of targets) {
+    if (target.type === "radio" || target.type === "checkbox") target.checked = value === target.dataset.on;
+    else if (target.tagName === "SELECT") {
+      if (![...target.options].some((o) => o.value === value)) target.prepend(Object.assign(el("option", undefined, value), { value }));
+      target.value = value;
+    } else if (target.type === "datetime-local") target.value = value.slice(0, 16);
+    else target.value = value;
+  }
+  return true;
+}
+
+function handleEvents(events) {
+  for (const event of events) {
+    if (event.type === "switchView") switchView(event.view);
+    else if (event.type === "submit") say(`Submitting to "${event.adapter}" is not supported yet`, true);
+    else if (event.type === "unsupported") say(`The form asked for an action that is not supported yet (${event.kind})`, true);
+  }
+}
+
+function switchView(name) {
+  if (!(state.views ?? []).some((v) => v.name === name)) return;
+  currentView = name;
+  $("view-select").value = name;
+  refresh().catch((err) => say(err.message, true));
+}
+
+async function runRuleSets(names, context) {
+  try {
+    for (const ruleSet of names) {
+      const res = await post("/api/rules", { ruleSet, context });
+      await applyOutcome(await res.json(), { structure: true });
+    }
+  } catch (err) {
+    say(err.message, true);
+  }
+}
+
+// Fields the schema or the template says are wrong are marked, with the reason as a tooltip.
+async function validate() {
+  if (!state.loaded) return;
+  let issues = [];
+  try {
+    issues = (await (await api("GET", "/api/validate")).json()).issues;
+  } catch {
+    return;
+  }
+  for (const marked of document.querySelectorAll(".invalid")) {
+    marked.classList.remove("invalid");
+    marked.title = marked.dataset.hint ?? "";
+  }
+  const byPath = new Map();
+  for (const issue of issues) byPath.set(issue.path, [...(byPath.get(issue.path) ?? []), issue.message]);
+  for (const [path, messages] of byPath) {
+    for (const target of elementsAt(path)) {
+      target.classList.add("invalid");
+      target.title = messages.join("\n");
+    }
+  }
+  const badge = $("problems");
+  badge.hidden = issues.length === 0;
+  badge.textContent = `${issues.length} problem${issues.length === 1 ? "" : "s"}`;
 }
 
 // --- controls -----------------------------------------------------------------------------------
@@ -145,6 +231,7 @@ function drawDropdown(node) {
   select.value = current;
   if (node.properties.optionsSource) {
     select.title = `Options come from the data source "${node.properties.optionsSource.dataSource}", which is not loaded`;
+    select.dataset.hint = select.title;
     select.classList.add("unavailable");
   }
   select.addEventListener("change", () => save(node.path, select.value, () => (select.value = current)));
@@ -156,6 +243,7 @@ function drawRadio(node) {
   input.type = "radio";
   input.name = node.path ?? node.id;
   const on = String(node.properties.onValue ?? "");
+  input.dataset.on = on;
   input.checked = node.value === on;
   input.addEventListener("change", () => {
     if (input.checked) save(node.path, on, () => (input.checked = false));
@@ -168,6 +256,7 @@ function drawCheckbox(node) {
   input.type = "checkbox";
   const on = String(node.properties.onValue ?? "true");
   const off = String(node.properties.offValue ?? "false");
+  input.dataset.on = on;
   input.checked = node.value === on;
   input.addEventListener("change", () => save(node.path, input.checked ? on : off, () => (input.checked = !input.checked)));
   return field(node, input);
@@ -213,8 +302,12 @@ function drawControl(node) {
     case "button": {
       const button = el("button", undefined, node.label || "Button");
       button.type = "button";
-      button.disabled = true;
-      button.title = "Rules and actions are not supported yet";
+      const ruleSets = Array.isArray(node.properties.ruleSets) ? node.properties.ruleSets : [];
+      if (ruleSets.length > 0) button.addEventListener("click", () => runRuleSets(ruleSets, node.path));
+      else {
+        button.disabled = true;
+        button.title = "This action is not supported yet";
+      }
       return button;
     }
     case "placeholder": return drawPlaceholder(node);
@@ -378,6 +471,11 @@ function drawNode(node) {
 
 async function refresh() {
   if (!state.loaded) return;
+  const active = document.activeElement;
+  const focusPath = stage.contains(active) ? active.dataset?.path : undefined;
+  const selection = focusPath && "selectionStart" in active ? [active.selectionStart, active.selectionEnd] : undefined;
+  const scroll = window.scrollY;
+
   const res = await api("GET", `/api/view?name=${encodeURIComponent(currentView ?? "")}`);
   const view = await res.json();
   const page = el("div", original ? "page original" : "page");
@@ -394,6 +492,20 @@ async function refresh() {
   }
   drawChildren(host, view.nodes);
   stage.replaceChildren(page);
+
+  if (focusPath) {
+    const again = elementsAt(focusPath).find((e) => e.tagName === active.tagName && e.type === active.type);
+    again?.focus();
+    if (again && selection) {
+      try {
+        again.setSelectionRange(selection[0], selection[1]);
+      } catch {
+        /* not a text field */
+      }
+    }
+  }
+  window.scrollTo(0, scroll);
+  await validate();
 }
 
 function drawCompat() {
@@ -492,6 +604,10 @@ $("layout-toggle").addEventListener("change", (event) => {
     /* not persisted, still applied */
   }
   refresh().catch((err) => say(err.message, true));
+});
+
+$("problems").addEventListener("click", () => {
+  document.querySelector(".invalid")?.scrollIntoView({ block: "center" });
 });
 
 $("compat-toggle").addEventListener("click", () => {

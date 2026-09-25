@@ -74,3 +74,7 @@ img.picture { max-width: 100%; height: auto; }
 .optionalPlaceholder:hover, .optionalPlaceholder:focus { text-decoration: underline; }
 .xsn-view .optionalPlaceholder::before { content: ""; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; margin: 0 8px 0 -16px; border: 2px solid #f39a1e; border-radius: 50%; }
 .page:not(.original) .optionalPlaceholder { display: inline-block; margin: 4px 0; padding: 2px 8px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
+
+/* Fields the schema or the template says are wrong: a red dashed outline, as InfoPath draws them. */
+.invalid { outline: 1px dashed #d32f2f; outline-offset: -1px; }
+#problems { color: #d32f2f; }

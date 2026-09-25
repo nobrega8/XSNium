@@ -4,12 +4,13 @@ import { createServer as createHttpServer, type IncomingMessage, type Server, ty
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { FormInstance, createInstance, loadInstance } from "../data/instance.ts";
+import { createInstance, loadInstance, type FormInstance } from "../data/instance.ts";
 import { buildFormDefinition, mimeTypeOf } from "../form/build.ts";
 import type { FormDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { openXsn, type XsnPackage } from "../package/xsn-package.ts";
 import { expandView } from "../render/expand.ts";
+import { FormRuntime, type Outcome } from "../runtime/runtime.ts";
 
 /**
  * Local web front end. It serves the UI and a small JSON API for one open form at a time.
@@ -55,8 +56,21 @@ export interface RunningServer {
 interface Session {
   pkg: XsnPackage;
   form: FormDefinition;
-  instance: FormInstance;
+  runtime: FormRuntime;
   fileName: string;
+}
+
+/** What an edit did, with the new values of everything it changed so the page can update in place. */
+function describe(outcome: Outcome, instance: FormInstance) {
+  const values: Record<string, string> = {};
+  for (const path of outcome.changed) {
+    try {
+      values[path] = instance.getValue(path) ?? "";
+    } catch {
+      /* a path the subset cannot address is simply not reported */
+    }
+  }
+  return { ok: true as const, changed: outcome.changed, values, events: outcome.events, issues: outcome.issues };
 }
 
 class HttpError extends Error {
@@ -72,7 +86,8 @@ class HttpError extends Error {
 
 function summary(session: Session | undefined) {
   if (!session) return { loaded: false as const };
-  const { form, instance } = session;
+  const { form } = session;
+  const instance = session.runtime.instance;
   return {
     loaded: true as const,
     fileName: session.fileName,
@@ -139,10 +154,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
   const indexHtml = readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8");
   const statics = new Map(Object.entries(STATIC_FILES).map(([url, f]) => [url, { body: readFileSync(path.join(PUBLIC_DIR, f.file)), type: f.type }]));
 
+  /** A runtime over some data, with calculated fields brought up to date. */
+  const start = (instance: FormInstance, form: FormDefinition): FormRuntime => {
+    const runtime = new FormRuntime(instance, form);
+    runtime.initialize();
+    return runtime;
+  };
+
   const open = (bytes: Buffer, fileName: string): Session => {
     const pkg = openXsn(bytes);
     const form = buildFormDefinition(pkg);
-    return { pkg, form, instance: createInstance(pkg, form), fileName };
+    return { pkg, form, runtime: start(createInstance(pkg, form), form), fileName };
   };
 
   if (options.file) {
@@ -207,13 +229,13 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
 
       case "POST /api/load-data": {
         const s = requireSession();
-        s.instance = loadInstance(await readBody(req, maxUpload), s.form);
+        s.runtime = start(loadInstance(await readBody(req, maxUpload), s.form), s.form);
         return sendJson(res, 200, summary(s));
       }
 
       case "POST /api/new": {
         const s = requireSession();
-        s.instance = createInstance(s.pkg, s.form);
+        s.runtime = start(createInstance(s.pkg, s.form), s.form);
         return sendJson(res, 200, summary(s));
       }
 
@@ -222,14 +244,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
         const name = url.searchParams.get("name");
         const view = s.form.views.find((v) => v.name === name) ?? s.form.views.find((v) => v.isDefault) ?? s.form.views[0];
         if (!view) throw new HttpError(404, "NO_VIEW", "The form has no views");
-        return sendJson(res, 200, expandView(view, s.instance));
+        return sendJson(res, 200, expandView(view, s.runtime.instance));
       }
 
       case "POST /api/set": {
         const s = requireSession();
         const body = await readJson(req);
-        s.instance.setValue(str(body["path"], "path"), str(body["value"], "value"));
-        return sendJson(res, 200, { ok: true });
+        const outcome = s.runtime.setValue(str(body["path"], "path"), str(body["value"], "value"));
+        return sendJson(res, 200, describe(outcome, s.runtime.instance));
       }
 
       case "POST /api/rows": {
@@ -238,17 +260,31 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
         const target = str(body["path"], "path");
         const op = str(body["op"], "op");
         const index = typeof body["index"] === "number" ? body["index"] : undefined;
-        if (op === "add") s.instance.addRow(target, index);
-        else if (op === "remove" && index !== undefined) s.instance.removeRow(target, index);
-        else if (op === "duplicate" && index !== undefined) s.instance.duplicateRow(target, index);
+        let outcome: Outcome;
+        if (op === "add") outcome = s.runtime.addRow(target, index);
+        else if (op === "remove" && index !== undefined) outcome = s.runtime.removeRow(target, index);
+        else if (op === "duplicate" && index !== undefined) outcome = s.runtime.duplicateRow(target, index);
         else throw new HttpError(400, "BAD_REQUEST", "Unknown row operation");
-        return sendJson(res, 200, { ok: true });
+        return sendJson(res, 200, describe(outcome, s.runtime.instance));
+      }
+
+      case "POST /api/rules": {
+        const s = requireSession();
+        const body = await readJson(req);
+        const context = typeof body["context"] === "string" ? body["context"] : undefined;
+        const outcome = s.runtime.runRuleSet(str(body["ruleSet"], "ruleSet"), context);
+        return sendJson(res, 200, describe(outcome, s.runtime.instance));
+      }
+
+      case "GET /api/validate": {
+        const s = requireSession();
+        return sendJson(res, 200, { issues: s.runtime.validate() });
       }
 
       case "GET /api/xml": {
         const s = requireSession();
         const name = safeFileName(s.fileName.replace(/\.xsn$/i, ""), "form") + ".xml";
-        return send(res, 200, s.instance.toXml(), {
+        return send(res, 200, s.runtime.instance.toXml(), {
           "Content-Type": "application/xml; charset=utf-8",
           "Content-Disposition": `attachment; filename="${name}"`,
         });

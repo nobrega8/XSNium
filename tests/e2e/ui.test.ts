@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
+import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
 /**
@@ -224,6 +225,83 @@ describe("original layout in a real browser", () => {
     await page.waitForFunction(() => document.body.innerText.includes("The late field exists"));
     assert.doesNotMatch(await page.locator(".page").innerText(), /Add the late field/, "nothing more can be inserted there");
     assert.match(await exportedXml(), /<my:late\/>|<my:late>/);
+    assert.deepEqual(errors, []);
+  });
+});
+
+describe("calculations, rules and validation in a real browser", () => {
+  async function openRuntime(): Promise<void> {
+    await page.setInputFiles("#open-form", { name: "order.xsn", mimeType: "application/octet-stream", buffer: runtimeXsnBytes() });
+    await page.waitForSelector(".page");
+  }
+  const at = (path: string) => page.locator(`[data-path="${path}"]`);
+  const P = "/r:order";
+
+  it("computes calculated fields when the form opens and updates them in place as inputs change", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openRuntime();
+    assert.equal(await at(`${P}/r:total`).inputValue(), "21");
+    assert.equal(await at(`${P}/r:grand`).inputValue(), "23");
+    // Mark the field, so a later re-render (which would create a new element) can be told apart from an in-place update.
+    await page.evaluate(() => ((window as unknown as { __marked: Element }).__marked = document.querySelector('[data-path="/r:order/r:total"]')!));
+    await at(`${P}/r:qty`).fill("10");
+    await at(`${P}/r:qty`).blur();
+    await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:total"]') as HTMLInputElement).value === "105");
+    assert.equal(await at(`${P}/r:grand`).inputValue(), "116");
+    assert.equal(await page.evaluate(() => (window as unknown as { __marked: Element }).__marked === document.querySelector('[data-path="/r:order/r:total"]')), true, "updated in place, not redrawn");
+  });
+
+  it("fires rules that cascade, and shows their results", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openRuntime();
+    await at(`${P}/r:status`).selectOption("closed");
+    await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:code"]') as HTMLInputElement).value === "ABC");
+    assert.equal(await at(`${P}/r:note`).inputValue(), "done");
+    await at(`${P}/r:status`).selectOption("open");
+    await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:note"]') as HTMLInputElement).value === "");
+  });
+
+  it("marks invalid fields with the reason, counts the problems and clears them when fixed", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openRuntime();
+    assert.equal(await page.locator("#problems").isHidden(), true);
+    await at(`${P}/r:code`).fill("ab1");
+    await at(`${P}/r:code`).blur();
+    await page.waitForSelector(`[data-path="${P}/r:code"].invalid`);
+    assert.match((await at(`${P}/r:code`).getAttribute("title")) ?? "", /expected format/);
+    assert.match(await page.locator("#problems").innerText(), /1 problem/);
+    await at(`${P}/r:name`).fill("");
+    await at(`${P}/r:name`).blur();
+    await page.waitForSelector(`[data-path="${P}/r:name"].invalid`);
+    assert.match(await page.locator("#problems").innerText(), /2 problems/);
+    await at(`${P}/r:code`).fill("ABC");
+    await at(`${P}/r:code`).blur();
+    await page.waitForFunction(() => !document.querySelector('[data-path="/r:order/r:code"].invalid'));
+  });
+
+  it("runs a button's rules: assignments, a view switch, and messages for what is not supported", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openRuntime();
+    await at(`${P}/r:status`).selectOption("closed");
+    await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:note"]') as HTMLInputElement).value === "done");
+    await page.locator("button", { hasText: "Reset" }).click();
+    await page.waitForFunction(() => (document.getElementById("view-select") as HTMLSelectElement).value === "Second");
+    assert.equal(await at(`${P}/r:status`).inputValue(), "open");
+    assert.match(await page.locator("#status").innerText(), /not supported/);
+  });
+
+  it("recalculates rows and totals when a row is added and edited", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openRuntime();
+    assert.equal(await at(`${P}/r:linesTotal`).inputValue(), "31");
+    await page.locator("text=Add row").click();
+    await page.waitForSelector(`[data-path="${P}/r:lines[3]/r:amount"]`);
+    await at(`${P}/r:lines[3]/r:amount`).fill("4");
+    await at(`${P}/r:lines[3]/r:amount`).blur();
+    await at(`${P}/r:lines[3]/r:count`).fill("5");
+    await at(`${P}/r:lines[3]/r:count`).blur();
+    await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:lines[3]/r:lineTotal"]') as HTMLInputElement).value === "20");
+    assert.equal(await at(`${P}/r:linesTotal`).inputValue(), "51");
     assert.deepEqual(errors, []);
   });
 });
