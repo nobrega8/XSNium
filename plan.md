@@ -1,4 +1,4 @@
-# InfoPath Legacy Compatibility Runtime
+# OpenForms: InfoPath Legacy Compatibility Runtime
 
 ## 1. Project Overview
 
@@ -831,27 +831,27 @@ Create a CLI for development and diagnostics.
 Potential commands:
 
 ```bash
-infopath open form.xsn
+openforms open form.xsn
 ```
 
 ```bash
-infopath inspect form.xsn
+openforms inspect form.xsn
 ```
 
 ```bash
-infopath extract form.xsn ./output
+openforms extract form.xsn ./output
 ```
 
 ```bash
-infopath validate form.xsn
+openforms validate form.xsn
 ```
 
 ```bash
-infopath compatibility form.xsn
+openforms compatibility form.xsn
 ```
 
 ```bash
-infopath render form.xsn
+openforms render form.xsn
 ```
 
 The CLI should be useful even without the graphical interface.

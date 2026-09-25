@@ -2,8 +2,8 @@
 import { XsnError, openXsn, readManifest } from "../index.ts";
 
 const USAGE = `Usage:
-  infopath inspect <form.xsn>            List package contents and diagnostics
-  infopath extract <form.xsn> <outdir>   Extract the package (original is never modified)
+  openforms inspect <form.xsn>            List package contents and diagnostics
+  openforms extract <form.xsn> <outdir>   Extract the package (original is never modified)
 `;
 
 function inspect(file: string): number {
