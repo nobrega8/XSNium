@@ -73,6 +73,13 @@ const CORE: Record<string, Fn> = {
   position: (a, c) => (argc("position", a, 0), c.position),
   count: (a) => (argc("count", a, 1), nodeSet(a[0]!, "count").length),
   id: () => [],
+  // XSLT: templates ask this before using an extension function and fall back to plain text otherwise.
+  "function-available": (a, c) => {
+    argc("function-available", a, 1, 1);
+    const name = toStringValue(a[0]!).trim();
+    const i = name.indexOf(":");
+    return i < 0 ? name in CORE : isKnownFunction(name.slice(0, i), name.slice(i + 1), c.env.resolvePrefix);
+  },
   "local-name": (a, c) => {
     argc("local-name", a, 0, 1);
     const n = a.length ? nodeSet(a[0]!, "local-name")[0] : c.node;

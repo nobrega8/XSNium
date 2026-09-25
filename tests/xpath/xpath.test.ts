@@ -370,3 +370,13 @@ describe("real-world expressions", { skip: fixtures.length === 0 && "no local fi
     });
   }
 });
+
+describe("function-available", () => {
+  it("tells a template which functions it may use", () => {
+    assert.equal(ev("function-available('count')"), true);
+    assert.equal(ev("function-available('xdMath:Eval')"), true);
+    assert.equal(ev("function-available('xdMath:NoSuchThing')"), false);
+    assert.equal(ev("function-available('nosuchfunction')"), false);
+    assert.equal(ev("function-available('unknownprefix:foo')"), false);
+  });
+});
