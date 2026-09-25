@@ -1,4 +1,4 @@
-# OpenForms: InfoPath Legacy Compatibility Runtime
+# XSNium: InfoPath Legacy Compatibility Runtime
 
 ## 1. Project Overview
 
@@ -832,27 +832,27 @@ Create a CLI for development and diagnostics.
 Potential commands:
 
 ```bash
-openforms open form.xsn
+xsnium open form.xsn
 ```
 
 ```bash
-openforms inspect form.xsn
+xsnium inspect form.xsn
 ```
 
 ```bash
-openforms extract form.xsn ./output
+xsnium extract form.xsn ./output
 ```
 
 ```bash
-openforms validate form.xsn
+xsnium validate form.xsn
 ```
 
 ```bash
-openforms compatibility form.xsn
+xsnium compatibility form.xsn
 ```
 
 ```bash
-openforms render form.xsn
+xsnium render form.xsn
 ```
 
 The CLI should be useful even without the graphical interface.

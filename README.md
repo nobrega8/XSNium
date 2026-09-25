@@ -1,16 +1,16 @@
-# OpenForms
+# XSNium
 
-OpenForms opens, inspects and (soon) renders and edits legacy Microsoft InfoPath `.xsn` form templates without InfoPath or Microsoft Office installed.
+XSNium opens, inspects and (soon) renders and edits legacy Microsoft InfoPath `.xsn` form templates without InfoPath or Microsoft Office installed.
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The goal is **compatibility and migration**, not a pixel-perfect clone of InfoPath.
 
 > **Status: early development.** Package reading, manifest parsing, schema parsing and the internal form model work. Rendering, data binding and editing are not implemented yet. See [Roadmap](#roadmap).
 
-> OpenForms is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
+> XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
 
 ## How it works
 
-An `.xsn` is a template, not a program. OpenForms treats it as untrusted input and translates it into its own model:
+An `.xsn` is a template, not a program. XSNium treats it as untrusted input and translates it into its own model:
 
 ```text
 .xsn (CAB package)
@@ -40,13 +40,13 @@ npm test
 
 ```bash
 # List the package contents and a summary of the manifest
-npm run openforms -- inspect path/to/form.xsn
+npm run xsnium -- inspect path/to/form.xsn
 
 # Print the internal form definition as JSON
-npm run openforms -- model path/to/form.xsn
+npm run xsnium -- model path/to/form.xsn
 
 # Extract the package to a folder (the original is left untouched)
-npm run openforms -- extract path/to/form.xsn ./out
+npm run xsnium -- extract path/to/form.xsn ./out
 ```
 
 Example `inspect` output:
@@ -83,7 +83,7 @@ src/
   manifest/   manifest.xsf -> ManifestModel, feature detection
   schema/     XSD -> SchemaModel
   form/       FormDefinition: the internal model the rest of the app uses
-  cli/        openforms command
+  cli/        xsnium command
 tests/        unit, security and real-world fixture tests
 plan.md       full design and phased plan
 ```
@@ -92,7 +92,7 @@ Layers only depend downwards: the parsers know nothing about the UI, and the ren
 
 ## Security
 
-`.xsn` files are untrusted. OpenForms is built so that opening one cannot run code or reach the network.
+`.xsn` files are untrusted. XSNium is built so that opening one cannot run code or reach the network.
 
 - No code from a template is ever executed (managed code, scripts, ActiveX, macros). It is reported as unsupported instead.
 - XML with a `DOCTYPE` or entity declaration is rejected, which rules out XXE and entity-expansion attacks. Nesting depth is capped.
@@ -127,7 +127,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
-**What OpenForms does today:** reads and inspects templates.
+**What XSNium does today:** reads and inspects templates.
 **MVP goal:** open a template, fill it in, and save the result as XML.
 **Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a.
 

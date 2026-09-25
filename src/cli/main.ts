@@ -2,9 +2,9 @@
 import { XsnError, buildFormDefinition, openXsn, readManifest } from "../index.ts";
 
 const USAGE = `Usage:
-  openforms inspect <form.xsn>            List package contents and diagnostics
-  openforms model <form.xsn>             Print the internal form definition summary as JSON
-  openforms extract <form.xsn> <outdir>   Extract the package (original is never modified)
+  xsnium inspect <form.xsn>            List package contents and diagnostics
+  xsnium model <form.xsn>             Print the internal form definition summary as JSON
+  xsnium extract <form.xsn> <outdir>   Extract the package (original is never modified)
 `;
 
 function inspect(file: string): number {

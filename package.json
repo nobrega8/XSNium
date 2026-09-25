@@ -1,5 +1,5 @@
 {
-  "name": "openforms",
+  "name": "xsnium",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,12 +8,12 @@
     "node": ">=22.18"
   },
   "bin": {
-    "openforms": "./src/cli/main.ts"
+    "xsnium": "./src/cli/main.ts"
   },
   "scripts": {
     "test": "node --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "openforms": "node src/cli/main.ts"
+    "xsnium": "node src/cli/main.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
