@@ -106,20 +106,34 @@ class Expander {
     return this.testsHold(c.properties["all"] as { test: string; negate: boolean }[], context);
   }
 
-  private testsHold(conditions: { test: string; negate: boolean }[], context: string): boolean {
+  /** `unknown` is the answer when a test cannot be evaluated: content stays visible, formatting is not applied. */
+  private testsHold(conditions: { test: string; negate: boolean }[], context: string, unknown = true): boolean {
     const env = { doc: this.instance.document, resolvePrefix: this.instance.namespaceResolver };
     for (const cond of conditions) {
       let result: boolean;
       try {
         const at = this.instance.select(context)[0];
-        if (!at || at.kind !== "element") return true;
+        if (!at || at.kind !== "element") return unknown;
         result = toBoolean(evaluateXPath(cond.test, elementNode(at.el), env));
       } catch {
-        return true;
+        return unknown;
       }
       if (result === cond.negate) return false;
     }
     return true;
+  }
+
+  /** Apply the conditional formatting whose tests hold; the result carries plain styles only. */
+  private formatted(p: Presentation): Presentation {
+    const rules = p.conditionalStyles;
+    if (!rules) return p;
+    this.dynamic = true;
+    const { conditionalStyles: _rules, ...rest } = p;
+    let style = rest.style;
+    for (const rule of rules) {
+      if (this.testsHold(rule.all, this.concretize(rule.context), false)) style = { ...(style ?? {}), ...rule.style };
+    }
+    return style !== undefined ? { ...rest, style } : rest;
   }
 
   private node(c: ControlDefinition, suffix: string): RenderNode {
@@ -127,7 +141,7 @@ class Expander {
     const id = suffix ? `${c.id}${suffix}` : c.id;
     const out: RenderNode = { id, type: c.type, properties: c.properties };
     if (c.label !== undefined) out.label = c.label;
-    if (c.presentation !== undefined) out.presentation = c.presentation;
+    if (c.presentation !== undefined) out.presentation = this.formatted(c.presentation);
 
     if (c.type === "repeatingSection" || c.type === "repeatingTable") {
       this.expandRows(c, out, suffix);

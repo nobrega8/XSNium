@@ -17,6 +17,43 @@ const FONT_SIZES: Record<string, string> = { "1": "8pt", "2": "10pt", "3": "12pt
 export const SEMANTIC_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "strong", "b", "i", "em", "u", "sup", "sub"]);
 
 /** Attribute lookup that ignores case (HTML attributes are written vAlign, colSpan, ...). */
+const XSL_NS = "http://www.w3.org/1999/XSL/Transform";
+
+const MAX_CONDITIONAL_STYLES = 64;
+
+/**
+ * Conditional formatting as InfoPath writes it: `<xsl:if test="..."><xsl:attribute name="style">color: red</xsl:attribute></xsl:if>`
+ * (or inside xsl:choose) directly within the element. The declarations go through the same allow-list as any other style.
+ */
+export function conditionalStyles(el: XmlElement, context: string): NonNullable<Presentation["conditionalStyles"]> {
+  const found: NonNullable<Presentation["conditionalStyles"]> = [];
+  const styleOf = (holder: XmlElement): Record<string, string> | undefined => {
+    const attribute = holder.children.find((c) => c.ns === XSL_NS && c.local === "attribute" && c.attrs["name"]?.toLowerCase() === "style");
+    if (!attribute) return undefined;
+    const text = attribute.content.filter((c): c is string => typeof c === "string").join("");
+    const { declarations } = sanitizeDeclarations(text);
+    return Object.keys(declarations).length > 0 ? declarations : undefined;
+  };
+  for (const child of el.children) {
+    if (child.ns !== XSL_NS || found.length >= MAX_CONDITIONAL_STYLES) continue;
+    if (child.local === "if" && child.attrs["test"] !== undefined) {
+      const style = styleOf(child);
+      if (style) found.push({ all: [{ test: child.attrs["test"], negate: false }], style, context });
+    } else if (child.local === "choose") {
+      const earlier: { test: string; negate: boolean }[] = [];
+      for (const branch of child.children) {
+        if (branch.ns !== XSL_NS) continue;
+        const own = branch.local === "when" && branch.attrs["test"] !== undefined ? [{ test: branch.attrs["test"], negate: false }] : [];
+        if (branch.local !== "when" && branch.local !== "otherwise") continue;
+        const style = styleOf(branch);
+        if (style) found.push({ all: [...own, ...earlier.map((c) => ({ ...c, negate: true }))], style, context });
+        if (own[0]) earlier.push(own[0]);
+      }
+    }
+  }
+  return found;
+}
+
 export function attrOf(el: XmlElement, name: string): string | undefined {
   const wanted = name.toLowerCase();
   for (const [key, value] of Object.entries(el.attrs)) if (key.toLowerCase() === wanted) return value;
@@ -117,5 +154,5 @@ export function columnWidths(table: XmlElement): string[] | undefined {
 
 /** True when a presentation says anything that changes how the element looks. */
 export function hasLook(p: Presentation | undefined): boolean {
-  return p !== undefined && (p.className !== undefined || p.style !== undefined || p.align !== undefined || p.vAlign !== undefined);
+  return p !== undefined && (p.className !== undefined || p.style !== undefined || p.align !== undefined || p.vAlign !== undefined || p.conditionalStyles !== undefined);
 }

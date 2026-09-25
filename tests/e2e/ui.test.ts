@@ -400,11 +400,14 @@ describe("conditional content in a real browser", () => {
     await page.keyboard.press("Tab");
     await page.waitForFunction(() => document.querySelectorAll(".page input").length === 2);
     assert.match(await page.locator(".page").innerText(), /Details for B/);
+    const colour = () => page.locator(".page").getByText("Status line").evaluate((e) => getComputedStyle(e).color);
+    assert.equal(await colour(), "rgb(255, 0, 0)");
     assert.doesNotMatch(await page.locator(".page").innerText(), /Nothing more is needed/);
     await page.locator(".page input").first().fill("C");
     await page.keyboard.press("Tab");
     await page.waitForFunction(() => document.querySelectorAll(".page input").length === 1);
     assert.match(await page.locator(".page").innerText(), /Nothing more is needed/);
+    assert.notEqual(await colour(), "rgb(255, 0, 0)");
     assert.deepEqual(errors, []);
   });
 });

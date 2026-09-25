@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { buildFormDefinition, createInstance, expandView, loadInstance, openXsn, type ControlDefinition, type RenderNode, type ViewDefinition } from "../../src/index.ts";
+import { buildFormDefinition, createInstance, expandView, loadInstance, openXsn, type ControlDefinition, type Presentation, type RenderNode, type ViewDefinition } from "../../src/index.ts";
 import { MY, sampleForm, samplePackage } from "../helpers/sample-form.ts";
 
 const ROOT = "/my:root";
@@ -57,6 +57,20 @@ describe("expandView", () => {
       [`${ROOT}/my:items[1]`, `${ROOT}/my:items[1]/my:name`, "first"],
       [`${ROOT}/my:items[2]`, `${ROOT}/my:items[2]/my:name`, "second"],
     ]);
+  });
+
+  it("applies conditional formatting while its tests hold, and not when they cannot be evaluated", () => {
+    const { inst } = setup();
+    const look: Presentation = { style: { color: "black" }, conditionalStyles: [
+      { all: [{ test: "my:title = 'Hello'", negate: false }], style: { color: "red" }, context: ROOT },
+      { all: [{ test: "my:title = 'Other'", negate: false }], style: { "font-weight": "bold" }, context: ROOT },
+      { all: [{ test: "not(", negate: false }], style: { "text-decoration": "underline" }, context: ROOT },
+    ] };
+    const node = () => expandView(view([c("t", "text", { binding: `${ROOT}/my:title`, presentation: look })]), inst);
+    assert.deepEqual(node().nodes[0]?.presentation, { style: { color: "red" } });
+    inst.setValue(`${ROOT}/my:title`, "Other");
+    assert.deepEqual(node().nodes[0]?.presentation, { style: { color: "black", "font-weight": "bold" } });
+    assert.equal(node().dynamic, true);
   });
 
   it("keeps only the rows whose conditions hold", () => {

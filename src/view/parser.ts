@@ -1,7 +1,7 @@
 import type { ControlDefinition, ControlType, Presentation } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { parseXml, type XmlElement } from "../xml/safe-xml.ts";
-import { attrOf, columnWidths, hasLook, presentationOf, SEMANTIC_TAGS } from "./presentation.ts";
+import { attrOf, columnWidths, conditionalStyles, hasLook, presentationOf, SEMANTIC_TAGS } from "./presentation.ts";
 import { sanitizeStylesheet } from "./style.ts";
 
 /**
@@ -220,10 +220,18 @@ class ViewBuilder {
   }
 
   /** Attach the look of the source element to a control, unless it already has one. */
-  private styled(controls: ControlDefinition[] | undefined, el: XmlElement, tag: string): ControlDefinition[] | undefined {
+  /** The look of an element, including any conditional formatting it carries. */
+  private look(el: XmlElement, options: Parameters<typeof presentationOf>[1], ctx: string): Presentation | undefined {
+    const presentation = presentationOf(el, options);
+    const conditional = conditionalStyles(el, ctx);
+    if (conditional.length === 0) return presentation;
+    return { ...(presentation ?? {}), conditionalStyles: conditional };
+  }
+
+  private styled(controls: ControlDefinition[] | undefined, el: XmlElement, tag: string, ctx: string): ControlDefinition[] | undefined {
     const first = controls?.[0];
     if (first && controls?.length === 1 && first.presentation === undefined) {
-      const presentation = presentationOf(el, { tag, cellLike: false });
+      const presentation = this.look(el, { tag, cellLike: false }, ctx);
       // A section's height is a design-time artefact: at run time InfoPath sizes it to its content, so keeping it
       // would leave a large empty frame around an optional section that has not been inserted.
       if (presentation?.style && SECTION_TYPES.has(first.type)) {
@@ -402,7 +410,7 @@ class ViewBuilder {
     const xct = xdAttr(el, "xctname")?.toLowerCase();
     if (xct !== undefined) {
       this.flush(out, frame);
-      const control = this.styled(this.control(el, xct, tag, ctx, depth), el, tag);
+      const control = this.styled(this.control(el, xct, tag, ctx, depth), el, tag, ctx);
       if (control) out.push(...control);
       return;
     }
@@ -419,7 +427,7 @@ class ViewBuilder {
 
     // Elements that carry a look (class, style, alignment, font) or a meaning (headings, emphasis) are kept as
     // boxes so their appearance survives; plain wrappers are transparent, as before.
-    const presentation = presentationOf(el, { font: tag === "font", blockLike: BLOCK_TAGS.has(tag) });
+    const presentation = this.look(el, { font: tag === "font", blockLike: BLOCK_TAGS.has(tag) }, ctx);
     if (SEMANTIC_TAGS.has(tag) || hasLook(presentation)) {
       this.flush(out, frame);
       const children: ControlDefinition[] = [];
@@ -484,12 +492,12 @@ class ViewBuilder {
         const rowSpan = Number(attrOf(child, "rowSpan") ?? 1);
         if (colSpan > 1) properties["colSpan"] = colSpan;
         if (rowSpan > 1) properties["rowSpan"] = rowSpan;
-        const presentation = presentationOf(child, { cellLike: true });
+        const presentation = this.look(child, { cellLike: true }, ctx);
         cells.push(this.make("layoutCell", { properties, children: inner, ...(presentation ? { presentation } : {}) }));
       }
     };
     collect(tr);
-    const rowLook = presentationOf(tr, { cellLike: true });
+    const rowLook = this.look(tr, { cellLike: true }, ctx);
     return this.make("layoutRow", { children: cells, ...(rowLook ? { presentation: rowLook } : {}) });
   }
 

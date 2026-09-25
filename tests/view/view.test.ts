@@ -47,6 +47,18 @@ describe("labels and layout", () => {
     assert.equal(cells[0]?.properties["colSpan"], 2);
   });
 
+  it("reads conditional formatting written as xsl:attribute inside xsl:if and xsl:choose", () => {
+    const { controls } = parse(`<div class="x"><xsl:if test="my:a = 'x'"><xsl:attribute name="style">color: red; font-weight: bold</xsl:attribute></xsl:if>
+      <xsl:choose><xsl:when test="my:b = '1'"><xsl:attribute name="style">background-color: yellow</xsl:attribute></xsl:when><xsl:otherwise><xsl:attribute name="style">behavior: url(x.htc); color: blue</xsl:attribute></xsl:otherwise></xsl:choose>
+      <span xd:xctname="PlainText" xd:CtrlId="T" xd:binding="my:a"/></div>`);
+    const styles = controls.find((c) => c.type === "box")?.presentation?.conditionalStyles;
+    assert.deepEqual(styles?.map((s) => [s.all, s.style]), [
+      [[{ test: "my:a = 'x'", negate: false }], { color: "red", "font-weight": "bold" }],
+      [[{ test: "my:b = '1'", negate: false }], { "background-color": "yellow" }],
+      [[{ test: "my:b = '1'", negate: true }], { color: "blue" }],
+    ]);
+  });
+
   it("keeps the content of regions and lists", () => {
     const { controls, diagnostics } = parse(`<div xd:xctname="HorizontalRegion" xd:CtrlId="H"><span xd:xctname="PlainText" xd:CtrlId="T" xd:binding="my:a"/></div>
       <ul xd:xctname="BulletedList" xd:CtrlId="L"><li><span xd:xctname="PlainText" xd:CtrlId="T2" xd:binding="my:b"/></li></ul>`);

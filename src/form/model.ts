@@ -53,6 +53,8 @@ export interface Presentation {
   vAlign?: string;
   /** Table column widths, in order (empty string where the view gave none). */
   colWidths?: string[];
+  /** Styles that apply only while every test holds (conditional formatting); decided when the view is drawn. */
+  conditionalStyles?: { all: { test: string; negate: boolean }[]; style: Record<string, string>; context: string }[];
 }
 
 export interface ControlDefinition {

@@ -17,6 +17,7 @@ const TEMPLATE = `<?xml version="1.0"?>
 
 const VIEW = `<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:xd="http://schemas.microsoft.com/office/infopath/2003" xmlns:b="${CN}">
   <xsl:template match="b:doc"><html><body>
+    <div class="status"><xsl:if test="b:kind = 'B'"><xsl:attribute name="style">color: rgb(255, 0, 0)</xsl:attribute></xsl:if>Status line</div>
     <div>Kind <span xd:xctname="PlainText" xd:CtrlId="KIND" xd:binding="b:kind"/></div>
     <xsl:choose>
       <xsl:when test="b:kind = 'B'"><div>Details for B <span xd:xctname="PlainText" xd:CtrlId="EXTRA" xd:binding="b:extra"/></div></xsl:when>
