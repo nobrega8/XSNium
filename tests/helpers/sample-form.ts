@@ -33,11 +33,11 @@ export const SAMPLE_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
 	<my:limited>x</my:limited>
 </my:root>`;
 
-export function samplePackage(template: string = SAMPLE_TEMPLATE): XsnPackage {
+export function samplePackage(template: string = SAMPLE_TEMPLATE, manifestExtra = ""): XsnPackage {
   const manifest = SAMPLE_MANIFEST.replace(
     '<xsf:property name="namespace" type="string" value="urn:example:my"></xsf:property>',
     '<xsf:property name="namespace" type="string" value="urn:example:my"></xsf:property><xsf:property name="rootElement" type="string" value="root"></xsf:property>',
-  );
+  ).replace("</xsf:xDocumentClass>", `${manifestExtra}</xsf:xDocumentClass>`);
   return openXsn(buildCab([
     { name: "manifest.xsf", data: manifest },
     { name: "myschema.xsd", data: SAMPLE_SCHEMA },

@@ -19,8 +19,13 @@ export type ControlType =
   | "repeatingTable"
   | "repeatingSection"
   | "section"
+  /** One-of group of alternative sections (xsd:choice). Its children are the alternatives. */
+  | "choiceGroup"
   | "label"
   | "image"
+  | "hyperlink"
+  /** File attachment control: stores the file inside the form data (see the InfoPath file attachment format). */
+  | "fileAttachment"
   /** Layout structure kept from the original view, so labels and columns stay where the author put them. */
   | "layoutTable"
   | "layoutRow"
@@ -57,14 +62,18 @@ export interface NamespaceDefinition {
 
 export interface DataSourceDefinition {
   id: string;
-  kind: "main" | "connection";
+  /** main: the form's own data. secondary: extra data the template queries. connection: a submit or query adapter. */
+  kind: "main" | "secondary" | "connection";
+  name?: string;
+  /** Secondary data sources: package file describing the data shape. */
+  schemaFile?: string;
   /** Main data source: XPath of the root, e.g. /my:root. */
   rootPath?: string;
   schema?: SchemaNode;
   /** Package file holding the template's initial data document, if it declares one. */
   initialDataFile?: string;
   /** Connection data sources are detected but never executed. */
-  connection?: { type: string; name: string; status: "unsupported" };
+  connection?: { type: string; name: string; role?: string; status: "unsupported" };
 }
 
 export interface ResourceDefinition {
@@ -85,7 +94,9 @@ export type ValidationType =
   | "minValue"
   | "maxValue"
   | "totalDigits"
-  | "fractionDigits";
+  | "fractionDigits"
+  /** A template-defined condition; `expression` is XPath text that is never executed as code. */
+  | "custom";
 
 export interface ValidationDefinition {
   fieldPath: string;
@@ -93,27 +104,43 @@ export interface ValidationDefinition {
   /** The constraint value, e.g. the pattern, the bound, or the XSD type name. */
   expression?: string;
   message?: string;
+  /** Node the expression is relative to. */
+  context?: string;
 }
 
-export interface RuleAction {
-  type: "setValue";
-  target: string;
-  /** XPath expression; stored as text and never executed as code. */
-  expression: string;
-}
+export type RuleAction =
+  | {
+      type: "setValue";
+      /** Absolute path when it could be resolved, otherwise the original text. */
+      target: string;
+      /** XPath expression; stored as text and never executed as code. */
+      expression: string;
+    }
+  | { type: "switchView"; view: string }
+  | { type: "submit"; adapter: string }
+  /** An action this runtime does not implement (dialogs, queries, closing the form...). */
+  | { type: "unsupported"; kind: string };
 
 export interface RuleDefinition {
   id: string;
-  origin: "calculation";
+  origin: "calculation" | "rule";
+  caption?: string;
+  /** "change:<path>" runs when that node changes; "invoke:<ruleSet>" runs when a control calls the rule set. */
   trigger?: string;
+  /** Node that relative paths in `condition` and the actions refer to. */
+  context?: string;
   condition?: string;
   actions: RuleAction[];
+  /** Present and false when the template disabled the rule. */
+  enabled?: boolean;
 }
 
 export interface FormDefinition {
   id: string;
   name: string;
   version?: string;
+  /** How instances identify their template in the mso-infoPathSolution processing instruction. */
+  template?: { name?: string; solutionVersion?: string; productVersion?: string };
   namespaces: NamespaceDefinition[];
   dataSources: DataSourceDefinition[];
   views: ViewDefinition[];

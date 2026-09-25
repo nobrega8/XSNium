@@ -9,6 +9,7 @@ import {
   isElement,
   newElement,
   parseDataDocument,
+  instructionAttributes,
   serializeDataDocument,
   type DataDocument,
   type DataElement,
@@ -49,6 +50,17 @@ export class FormInstance {
 
   get root(): DataElement {
     return this.document.root;
+  }
+
+  /** View the file asks to open first (mso-infoPathSolution initialView). Ignore it if it names no view. */
+  get initialView(): string | undefined {
+    const name = instructionAttributes(this.document, "mso-infoPathSolution")["initialView"];
+    return name !== undefined && this.form.views.some((v) => v.name === name) ? name : undefined;
+  }
+
+  /** Version of the template this data was created with, used to decide whether an upgrade is needed. */
+  get solutionVersion(): string | undefined {
+    return instructionAttributes(this.document, "mso-infoPathSolution")["solutionVersion"];
   }
 
   private readonly resolve: NamespaceResolver = (prefix) => {
@@ -216,7 +228,7 @@ export class FormInstance {
     if (!schema) throw new XsnError("INVALID_OPERATION", "Form has no main data source with a schema");
     const holder = new FormInstance({ root: newElement("", "", "placeholder", undefined), instructions: [] }, form);
     const root = holder.skeleton(schema, undefined, { count: 0 });
-    return new FormInstance({ root, instructions: [] }, form);
+    return new FormInstance({ root, instructions: templateInstructions(form) }, form);
   }
 
   // --- repeating structures ------------------------------------------------------------------
@@ -303,6 +315,29 @@ export class FormInstance {
   toXml(): string {
     return serializeDataDocument(this.document);
   }
+}
+
+const escapeAttr = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+/**
+ * The processing instructions a form file must carry (MS-IPFFX 2.1.1), for data not started from
+ * the template's own initial document. href names the template as the package refers to it; it is
+ * never fetched.
+ */
+function templateInstructions(form: FormDefinition): DataDocument["instructions"] {
+  const t = form.template;
+  if (!t?.name) return [];
+  const attrs = [
+    t.solutionVersion ? `solutionVersion="${escapeAttr(t.solutionVersion)}"` : "",
+    t.productVersion ? `productVersion="${escapeAttr(t.productVersion)}"` : "",
+    'PIVersion="1.0.0.0"',
+    'href="manifest.xsf"',
+    `name="${escapeAttr(t.name)}"`,
+  ].filter(Boolean);
+  return [
+    { target: "mso-infoPathSolution", data: attrs.join(" ") },
+    { target: "mso-application", data: 'progid="InfoPath.Document" versionProgid="InfoPath.Document.3"' },
+  ];
 }
 
 function cloneElement(el: DataElement, parent: DataElement | undefined): DataElement {

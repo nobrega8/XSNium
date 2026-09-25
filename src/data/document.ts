@@ -140,6 +140,15 @@ export function serializeDataDocument(doc: DataDocument): string {
   return lines.join("\n") + "\n";
 }
 
+/** Pseudo-attributes of a processing instruction, e.g. initialView of mso-infoPathSolution. */
+export function instructionAttributes(doc: DataDocument, target: string): Record<string, string> {
+  const pi = doc.instructions.find((i) => i.target === target);
+  const out: Record<string, string> = {};
+  if (!pi) return out;
+  for (const m of pi.data.matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) out[m[1]!] = m[2] ?? m[3] ?? "";
+  return out;
+}
+
 // --- helpers -------------------------------------------------------------------------------------
 
 /** Nearest in-scope prefix for a namespace URI, or undefined. */

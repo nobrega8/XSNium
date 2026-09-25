@@ -1,13 +1,15 @@
 import path from "node:path";
-import type { ManifestModel } from "../manifest/model.ts";
+import type { ManifestButton, ManifestModel, ManifestRuleAction, ManifestRuleSet } from "../manifest/model.ts";
 import { readManifest } from "../manifest/read.ts";
 import type { PackageEntry, XsnPackage } from "../package/xsn-package.ts";
 import type { Facets, SchemaModel, SchemaNode } from "../schema/model.ts";
 import { readSchema } from "../schema/read.ts";
-import { parseView } from "../view/parser.ts";
+import { joinPath, parseView } from "../view/parser.ts";
 import { schemaNodeAtPath } from "./schema-path.ts";
 import type {
+  DataSourceDefinition,
   FormDefinition,
+  RuleAction,
   NamespaceDefinition,
   ResourceDefinition,
   RuleDefinition,
@@ -123,13 +125,109 @@ function buildResources(entries: PackageEntry[]): ResourceDefinition[] {
     .map((e) => ({ name: e.name, mimeType: mimeTypeOf(e.name), size: e.size, kind: e.kind === "image" ? ("image" as const) : ("other" as const) }));
 }
 
+function buildAction(action: ManifestRuleAction, context: string | undefined): RuleAction {
+  switch (action.kind) {
+    case "assignmentAction": {
+      const raw = action.attrs["targetField"] ?? "";
+      const target = (context !== undefined ? joinPath(context, raw) : undefined) ?? raw;
+      return { type: "setValue", target, expression: action.attrs["expression"] ?? "" };
+    }
+    case "switchViewAction":
+      return { type: "switchView", view: action.attrs["view"] ?? "" };
+    case "submitAction":
+      return { type: "submit", adapter: action.attrs["adapter"] ?? "" };
+    default:
+      return { type: "unsupported", kind: action.kind };
+  }
+}
+
 function buildRules(manifest: ManifestModel): RuleDefinition[] {
-  return manifest.calculations.map((c, i) => ({
+  const rules: RuleDefinition[] = manifest.calculations.map((c, i) => ({
     id: `calc-${i + 1}`,
     origin: "calculation" as const,
     trigger: c.refresh ?? "onChange",
     actions: [{ type: "setValue" as const, target: c.target, expression: c.expression }],
   }));
+
+  let counter = 0;
+  const emit = (rs: ManifestRuleSet, trigger: string, context: string | undefined) => {
+    for (const r of rs.rules) {
+      rules.push({
+        id: `rule-${++counter}`,
+        origin: "rule",
+        ...(r.caption !== undefined ? { caption: r.caption } : {}),
+        trigger,
+        ...(context !== undefined ? { context } : {}),
+        ...(r.condition !== undefined ? { condition: r.condition } : {}),
+        actions: r.actions.map((a) => buildAction(a, context)),
+        ...(r.enabled ? {} : { enabled: false }),
+      });
+    }
+  };
+
+  const byName = new Map(manifest.ruleSets.map((rs) => [rs.name, rs]));
+  const triggered = new Set<string>();
+  for (const handler of manifest.eventHandlers) {
+    for (const name of handler.ruleSets) {
+      const rs = byName.get(name);
+      if (!rs) continue;
+      triggered.add(name);
+      emit(rs, `change:${handler.match}`, handler.match);
+    }
+  }
+  // Rule sets no data change fires are run by controls (buttons, submit), so keep them addressable.
+  for (const rs of manifest.ruleSets) if (!triggered.has(rs.name)) emit(rs, `invoke:${rs.name}`, undefined);
+  return rules;
+}
+
+function buildValidations(manifest: ManifestModel): ValidationDefinition[] {
+  return manifest.errorConditions.map((c) => ({
+    fieldPath: c.match,
+    type: "custom" as const,
+    expression: c.expression,
+    ...(c.message !== undefined ? { message: c.message } : {}),
+    ...(c.expressionContext !== undefined ? { context: c.expressionContext } : {}),
+  }));
+}
+
+function buildDataSources(manifest: ManifestModel, rootPath: string, schema: SchemaNode): DataSourceDefinition[] {
+  const sources: DataSourceDefinition[] = [
+    {
+      id: "main",
+      kind: "main",
+      rootPath,
+      schema,
+      ...(manifest.initialDocument !== undefined ? { initialDataFile: manifest.initialDocument } : {}),
+    },
+  ];
+  manifest.dataObjects.forEach((o, i) => {
+    const query = manifest.dataAdapters.find((a) => a.role === "query" && a.dataObject === o.name);
+    sources.push({
+      id: `secondary-${i + 1}`,
+      kind: "secondary",
+      name: o.name,
+      ...(o.schema !== undefined ? { schemaFile: o.schema } : {}),
+      connection: { type: query?.kind ?? "static", name: o.name, role: "query", status: "unsupported" },
+    });
+  });
+  manifest.dataAdapters
+    .filter((a) => a.role !== "query")
+    .forEach((a, i) => sources.push({ id: `connection-${i + 1}`, kind: "connection", connection: { type: a.kind, name: a.name, role: a.role, status: "unsupported" } }));
+  return sources;
+}
+
+/** Tell each button which rule sets it runs (the manifest refers to buttons by control id). */
+function attachButtonRules(controls: ViewDefinition["controls"], buttons: ManifestButton[]): void {
+  if (buttons.length === 0) return;
+  const byId = new Map(buttons.map((b) => [b.name, b.ruleSets]));
+  const visit = (cs: ViewDefinition["controls"]) => {
+    for (const c of cs) {
+      const sets = c.type === "button" ? byId.get(c.id) : undefined;
+      if (sets && sets.length > 0) c.properties["ruleSets"] = sets;
+      if (c.children) visit(c.children);
+    }
+  };
+  visit(controls);
 }
 
 function buildViews(
@@ -151,6 +249,7 @@ function buildViews(
           typeOfPath: (p) => schemaNodeAtPath(schema, p, uriByPrefix)?.type?.name,
         });
         controls = parsed.controls;
+        attachButtonRules(controls, v.buttons);
         for (const d of parsed.diagnostics) diagnostics.push({ level: d.level, category: "VIEW", message: `${v.name}: ${d.message}` });
       } catch (err) {
         // A view that cannot be read must not prevent the form from opening.
@@ -181,18 +280,7 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
   const { rootPath, validations } = deriveValidations(schema, prefixes);
 
   const name = manifest.caption ?? manifest.formName ?? "Untitled form";
-  const dataSources: FormDefinition["dataSources"] = [
-    {
-      id: "main",
-      kind: "main",
-      rootPath,
-      schema: schema.root,
-      ...(manifest.initialDocument !== undefined ? { initialDataFile: manifest.initialDocument } : {}),
-    },
-  ];
-  manifest.dataAdapters.forEach((a, i) =>
-    dataSources.push({ id: `connection-${i + 1}`, kind: "connection", connection: { type: a.kind, name: a.name, status: "unsupported" } }),
-  );
+  const dataSources = buildDataSources(manifest, rootPath, schema.root);
 
   const diagnostics: FormDefinition["diagnostics"] = [
     ...pkg.diagnostics,
@@ -205,12 +293,17 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     id: slug(manifest.formName ?? name),
     name,
     ...(manifest.solutionVersion !== undefined ? { version: manifest.solutionVersion } : {}),
+    template: {
+      ...(manifest.formName !== undefined ? { name: manifest.formName } : {}),
+      ...(manifest.solutionVersion !== undefined ? { solutionVersion: manifest.solutionVersion } : {}),
+      ...(manifest.productVersion !== undefined ? { productVersion: manifest.productVersion } : {}),
+    },
     namespaces: prefixes.definitions,
     dataSources,
     views,
     resources: buildResources(pkg.entries),
     rules: buildRules(manifest),
-    validations,
+    validations: [...validations, ...buildValidations(manifest)],
     features: manifest.features,
     diagnostics,
   };

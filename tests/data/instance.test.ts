@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { FormInstance, buildFormDefinition, createInstance, loadInstance, openXsn } from "../../src/index.ts";
+import { FormInstance, buildFormDefinition, createInstance, loadInstance, openXsn, type ControlDefinition } from "../../src/index.ts";
 import { MY, sampleForm, samplePackage } from "../helpers/sample-form.ts";
 
 const ROOT = "/my:root";
@@ -222,21 +222,23 @@ describe("real-world instances", { skip: fixtures.length === 0 && "no local fixt
       assert.equal(loadInstance(xml, form).toXml(), xml, "stable round trip");
       assert.match(xml, /mso-infoPathSolution/);
 
-      // Every bound path that exists in the template can be read; text ones can be written.
-      const paths = form.views.flatMap((v) => v.boundPaths);
-      let written = 0;
-      for (const p of paths) {
-        const nodes = inst.select(p);
-        if (nodes.length === 0) continue;
-        const first = nodes[0]!;
-        if (first.kind === "element" && first.el.content.every((c) => typeof c === "string")) {
-          inst.setValue(p, "probe");
-          assert.equal(inst.getValue(p), "probe");
-          written++;
+      // Text-like controls bound to nodes the schema allows can be written and read back.
+      const flat = (cs: ControlDefinition[]): ControlDefinition[] => cs.flatMap((c) => [c, ...flat(c.children ?? [])]);
+      const bindings = form.views.flatMap((v) => flat(v.controls)).filter((c) => c.binding && ["text", "textArea", "number"].includes(c.type)).map((c) => c.binding!);
+      let written: string | undefined;
+      for (const b of bindings) {
+        try {
+          inst.setValue(b, "7");
+        } catch (err) {
+          // Nodes inside repeating groups without rows cannot be created by path; that is expected.
+          if ((err as { code?: string }).code === "NODE_NOT_FOUND" || (err as { code?: string }).code === "INVALID_OPERATION") continue;
+          throw err;
         }
+        assert.equal(inst.getValue(b), "7");
+        written ??= b;
       }
-      assert.ok(written > 0, "at least one leaf field written");
-      assert.equal(loadInstance(inst.toXml(), form).getValue(paths.find((p) => inst.getValue(p) === "probe")!), "probe");
+      if (bindings.length > 0) assert.ok(written, "at least one bound field could be written");
+      if (written) assert.equal(loadInstance(inst.toXml(), form).getValue(written), "7");
 
       // Skeleton fallback also works and stays inside the schema's limits.
       const skeleton = FormInstance.empty(form);

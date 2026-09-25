@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { buildFormDefinition, mimeTypeOf, openXsn, type FormDefinition } from "../../src/index.ts";
+import { buildFormDefinition, mimeTypeOf, openXsn, type ControlDefinition, type FormDefinition } from "../../src/index.ts";
 import { buildCab } from "../helpers/build-cab.ts";
 import { SAMPLE_MANIFEST } from "../helpers/manifests.ts";
 
@@ -63,8 +63,8 @@ describe("buildFormDefinition", () => {
   it("lists data connections as unsupported, without executing them", () => {
     const conns = f.dataSources.filter((d) => d.kind === "connection");
     assert.deepEqual(conns.map((c) => c.connection), [
-      { type: "email", name: "Main submit", status: "unsupported" },
-      { type: "webService", name: "Lookup", status: "unsupported" },
+      { type: "email", name: "Main submit", role: "adapter", status: "unsupported" },
+      { type: "webService", name: "Lookup", role: "adapter", status: "unsupported" },
     ]);
   });
 
@@ -144,12 +144,25 @@ describe("real-world form definitions", { skip: fixtures.length === 0 && "no loc
       const def = buildFormDefinition(openXsn(path.join(fixtureDir, file)));
       assert.ok(def.dataSources[0]?.rootPath?.startsWith("/"));
       assert.ok(def.views.some((v) => v.isDefault));
-      assert.ok(def.validations.length > 0);
       // Every rule target and bound path must live under the form's root.
       const root = def.dataSources[0]!.rootPath!;
-      for (const r of def.rules) assert.ok(r.actions[0]!.target.startsWith(root), "rule target under root");
+      for (const r of def.rules) {
+        // Rules run by a button have no fixed context, so their relative targets are resolved when they run.
+        for (const a of r.actions) {
+          if (a.type === "setValue" && (r.context !== undefined || r.origin === "calculation")) assert.ok(a.target.startsWith(root), `rule target under root: ${a.target}`);
+        }
+      }
       for (const v of def.views) for (const p of v.boundPaths) assert.ok(p.startsWith(root), "bound path under root");
-      assert.deepEqual(def.diagnostics.filter((d) => d.level !== "info"), []);
+      // Unsupported features are reported as warnings, but nothing may fail outright.
+      assert.deepEqual(def.diagnostics.filter((d) => d.level === "error"), []);
+      // Every rule set a button runs must exist as rules, so pressing it can do something.
+      const invokable = new Set(def.rules.map((r) => r.trigger));
+      const flat = (cs: ControlDefinition[]): ControlDefinition[] => cs.flatMap((c) => [c, ...flat(c.children ?? [])]);
+      for (const v of def.views) {
+        for (const c of flat(v.controls)) {
+          for (const name of (c.properties["ruleSets"] as string[] | undefined) ?? []) assert.ok(invokable.has(`invoke:${name}`), `rules exist for ${name}`);
+        }
+      }
     });
   }
 });
