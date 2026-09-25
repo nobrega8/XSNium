@@ -62,7 +62,7 @@ This starts a local web UI on `127.0.0.1` (only this computer can reach it). You
 
 ### A single-file program
 
-`npm run build:exe` produces `dist/xsnium` (`dist/xsnium.exe` on Windows): one file that needs no Node.js installed. It is a Node single executable application, so it is built per platform, on that platform. Opening it without arguments starts the app and shows it in your browser; it accepts the same commands as the CLI. The result is not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn about it until signing is set up.
+`npm run build:exe` produces `dist/xsnium` (`dist/xsnium.exe` on Windows): one file that needs no Node.js installed. It is a Node single executable application, so it is built per platform, on that platform. Opening it without arguments starts the app and shows it in your browser; it accepts the same commands as the CLI. On Windows, `npm run build:installer` wraps it in an Inno Setup installer published as "Afonso Nóbrega Dev" (per-user by default, with an optional "Open with XSNium" entry for `.xsn` files). Versions follow [VERSIONING.md](VERSIONING.md), and tagging `vX.Y.Z` builds and publishes a release. The result is not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn about it until signing is set up.
 
 ### CLI
 
