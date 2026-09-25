@@ -229,8 +229,8 @@ function drawDropdown(node) {
     select.prepend(opt);
   }
   select.value = current;
-  if (node.properties.optionsSource) {
-    select.title = `Options come from the data source "${node.properties.optionsSource.dataSource}", which is not loaded`;
+  if (node.properties.optionsSource && !node.properties.optionsLoaded) {
+    select.title = `Options come from the data source "${node.properties.optionsSource.dataSource}", which is not loaded. Load a data file for it in the Compatibility panel.`;
     select.dataset.hint = select.title;
     select.classList.add("unavailable");
   }
@@ -602,6 +602,40 @@ async function refresh() {
   await validate();
 }
 
+// Data the template would fetch (a list, a service) is never fetched; the user can supply it from a local XML file.
+function drawSecondary(panel) {
+  const sources = state.secondary ?? [];
+  if (sources.length === 0) return;
+  panel.append(el("h3", undefined, "Data sources"));
+  panel.append(el("p", undefined, "The template's own queries are not run. Load an XML file with the same structure to fill dropdowns that depend on it."));
+  for (const source of sources) {
+    const row = el("p");
+    row.append(el("span", undefined, `${source.name}: ${source.loaded ? "loaded" : "not loaded"} `));
+    row.append(chooser(source.loaded ? "Replace" : "Load data", ".xml,text/xml", async (file) => {
+      try {
+        const res = await api("POST", "/api/secondary", file, { "X-Source-Name": encodeURIComponent(source.name) });
+        await load(res);
+        say(`Loaded ${file.name} as "${source.name}"`);
+      } catch (err) {
+        say(err.message, true);
+      }
+    }));
+    if (source.loaded) {
+      const clear = el("button", "tool", "Remove");
+      clear.type = "button";
+      clear.addEventListener("click", async () => {
+        try {
+          await load(await post("/api/secondary/clear", { name: source.name }));
+        } catch (err) {
+          say(err.message, true);
+        }
+      });
+      row.append(clear);
+    }
+    panel.append(row);
+  }
+}
+
 function drawCompat() {
   const panel = $("compat");
   panel.replaceChildren();
@@ -620,6 +654,7 @@ function drawCompat() {
     panel.append(list);
   }
   if (!any) panel.append(el("p", undefined, "Nothing unsupported was found."));
+  drawSecondary(panel);
   const notes = state.diagnostics.filter((d) => d.level !== "info");
   if (notes.length > 0) {
     panel.append(el("h3", undefined, "Notes"));

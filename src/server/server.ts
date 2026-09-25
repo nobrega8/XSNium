@@ -9,7 +9,7 @@ import { buildFormDefinition, mimeTypeOf } from "../form/build.ts";
 import type { FormDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { openXsn, type XsnPackage } from "../package/xsn-package.ts";
-import { expandView } from "../render/expand.ts";
+import { expandView, type RenderNode } from "../render/expand.ts";
 import { FormRuntime, type Outcome } from "../runtime/runtime.ts";
 
 /**
@@ -90,6 +90,22 @@ class HttpError extends Error {
   }
 }
 
+/** Dropdowns whose options come from a secondary data source get them once the user has supplied that data. */
+function fillOptions(nodes: RenderNode[], runtime: FormRuntime): void {
+  for (const node of nodes) {
+    const source = node.properties["optionsSource"] as Parameters<FormRuntime["optionsFrom"]>[0] | undefined;
+    if (source) {
+      const options = runtime.optionsFrom(source);
+      if (options) {
+        node.properties["options"] = options;
+        node.properties["optionsLoaded"] = true;
+      }
+    }
+    fillOptions(node.children ?? [], runtime);
+    for (const row of node.rows ?? []) fillOptions(row.children, runtime);
+  }
+}
+
 function summary(session: Session | undefined) {
   if (!session) return { loaded: false as const };
   const { form } = session;
@@ -103,6 +119,7 @@ function summary(session: Session | undefined) {
     initialView: instance.initialView ?? form.views.find((v) => v.isDefault)?.name ?? form.views[0]?.name,
     features: form.features,
     diagnostics: form.diagnostics,
+    secondary: session.runtime.secondarySources(),
     dataSources: form.dataSources.map((d) => ({ id: d.id, kind: d.kind, name: d.name, connection: d.connection })),
   };
 }
@@ -235,13 +252,17 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
 
       case "POST /api/load-data": {
         const s = requireSession();
-        s.runtime = start(loadInstance(await readBody(req, maxUpload), s.form), s.form);
+        const next = start(loadInstance(await readBody(req, maxUpload), s.form), s.form);
+        next.adoptSecondary(s.runtime);
+        s.runtime = next;
         return sendJson(res, 200, summary(s));
       }
 
       case "POST /api/new": {
         const s = requireSession();
-        s.runtime = start(createInstance(s.pkg, s.form), s.form);
+        const next = start(createInstance(s.pkg, s.form), s.form);
+        next.adoptSecondary(s.runtime);
+        s.runtime = next;
         return sendJson(res, 200, summary(s));
       }
 
@@ -250,7 +271,22 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
         const name = url.searchParams.get("name");
         const view = s.form.views.find((v) => v.name === name) ?? s.form.views.find((v) => v.isDefault) ?? s.form.views[0];
         if (!view) throw new HttpError(404, "NO_VIEW", "The form has no views");
-        return sendJson(res, 200, expandView(view, s.runtime.instance));
+        const tree = expandView(view, s.runtime.instance);
+        fillOptions(tree.nodes, s.runtime);
+        return sendJson(res, 200, tree);
+      }
+
+      case "POST /api/secondary": {
+        const s = requireSession();
+        const name = decodeURIComponent(String(req.headers["x-source-name"] ?? ""));
+        s.runtime.loadSecondary(name, await readBody(req, maxUpload));
+        return sendJson(res, 200, summary(s));
+      }
+
+      case "POST /api/secondary/clear": {
+        const s = requireSession();
+        s.runtime.unloadSecondary(str((await readJson(req))["name"], "name"));
+        return sendJson(res, 200, summary(s));
       }
 
       case "POST /api/set": {

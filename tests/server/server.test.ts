@@ -4,6 +4,7 @@ import { after, before, describe, it } from "node:test";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
 import { buildAttachment } from "../../src/data/blobs.ts";
 import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
+import { PILOTS_XML, secondaryXsnBytes } from "../helpers/secondary-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
@@ -337,5 +338,42 @@ describe("pictures and attachments through the API", () => {
     const text = JSON.stringify(view);
     assert.match(text, /"kind":"picture"/);
     assert.ok(!text.includes(TINY_PNG.toString("base64")));
+  });
+});
+
+describe("secondary data through the API", () => {
+  const open = () => api("POST", "/api/open", secondaryXsnBytes());
+  const load = (name: string, body: string) => api("POST", "/api/secondary", body, { "X-Source-Name": encodeURIComponent(name) });
+  const dropdown = async () => {
+    const tree = await (await api("GET", "/api/view")).json();
+    const all = (ns: any[]): any[] => ns.flatMap((n) => [n, ...all(n.children ?? [])]);
+    return all(tree.nodes).find((n) => n.type === "dropdown");
+  };
+
+  it("lists the sources and fills the dropdown once data is loaded", async () => {
+    const state = await (await open()).json();
+    assert.deepEqual(state.secondary, [{ name: "Pilots", loaded: false }]);
+    assert.equal((await dropdown()).properties.optionsLoaded, undefined);
+    const res = await load("Pilots", PILOTS_XML);
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).secondary, [{ name: "Pilots", loaded: true }]);
+    const d = await dropdown();
+    assert.equal(d.properties.optionsLoaded, true);
+    assert.deepEqual(d.properties.options, [{ value: "1", label: "Amelia" }, { value: "2", label: "Bert" }]);
+  });
+
+  it("keeps the data when the form data is replaced, and can remove it", async () => {
+    await open();
+    await load("Pilots", PILOTS_XML);
+    assert.equal((await api("POST", "/api/new")).status, 200);
+    assert.equal((await dropdown()).properties.optionsLoaded, true);
+    const cleared = await json("/api/secondary/clear", { name: "Pilots" });
+    assert.deepEqual((await cleared.json()).secondary, [{ name: "Pilots", loaded: false }]);
+  });
+
+  it("rejects unknown sources and hostile XML", async () => {
+    await open();
+    assert.equal((await load("Nope", PILOTS_XML)).status, 400);
+    assert.equal((await load("Pilots", '<!DOCTYPE x [<!ENTITY e "boom">]><x>&e;</x>')).status, 400);
   });
 });

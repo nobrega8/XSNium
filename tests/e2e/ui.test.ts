@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
 import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
+import { PILOTS_XML, secondaryXsnBytes } from "../helpers/secondary-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
@@ -368,5 +369,21 @@ describe("pictures and attachments in a real browser", () => {
     const xml = await exportedXml();
     assert.match(xml, new RegExp(`<b:photo>${TINY_PNG.toString("base64").replace(/[+/=]/g, "\$&")}</b:photo>`));
     assert.match(xml, /mso-infoPath-file-attachment-present/);
+  });
+});
+
+describe("secondary data in a real browser", () => {
+  it("fills a dropdown after the user loads a data file for its source", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await page.setInputFiles("#open-form", { name: "secondary.xsn", mimeType: "application/octet-stream", buffer: secondaryXsnBytes() });
+    await page.waitForSelector(".page select");
+    assert.equal(await page.locator(".page select option").count(), 1);
+    await page.click("#compat-toggle");
+    await page.locator('#compat label:has-text("Load data") input[type=file]').setInputFiles({ name: "pilots.xml", mimeType: "text/xml", buffer: Buffer.from(PILOTS_XML) });
+    await page.waitForFunction(() => document.querySelectorAll(".page select option").length === 3);
+    await page.selectOption(".page select", "2");
+    await page.waitForFunction(() => (document.querySelector(".page select") as HTMLSelectElement).value === "2");
+    assert.match(await page.locator("#compat").innerText(), /Pilots: loaded/);
+    assert.deepEqual(errors, []);
   });
 });
