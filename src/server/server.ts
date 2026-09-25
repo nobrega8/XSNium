@@ -20,7 +20,15 @@ import { FormRuntime, type Outcome } from "../runtime/runtime.ts";
  * (which blocks DNS rebinding and cross-site requests from other pages in the user's browser).
  */
 
-const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
+/**
+ * The page's own files. In a single-file build they are assets inside the executable; otherwise they
+ * are read from the public folder next to this module.
+ */
+function readPublic(file: string): Buffer {
+  const sea = process.getBuiltinModule("node:sea");
+  if (sea.isSea()) return Buffer.from(sea.getAsset(`public/${file}`));
+  return readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "public", file));
+}
 const DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_INLINE_VALUE = 20_000;
@@ -174,8 +182,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
   const maxUpload = options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
   let session: Session | undefined;
 
-  const indexHtml = readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8");
-  const statics = new Map(Object.entries(STATIC_FILES).map(([url, f]) => [url, { body: readFileSync(path.join(PUBLIC_DIR, f.file)), type: f.type }]));
+  const indexHtml = readPublic("index.html").toString("utf8");
+  const statics = new Map(Object.entries(STATIC_FILES).map(([url, f]) => [url, { body: readPublic(f.file), type: f.type }]));
 
   /** A runtime over some data, with calculated fields brought up to date. */
   const start = (instance: FormInstance, form: FormDefinition): FormRuntime => {

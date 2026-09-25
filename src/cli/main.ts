@@ -115,4 +115,9 @@ async function main(argv: string[]): Promise<number> {
   return 64;
 }
 
-process.exitCode = await main(process.argv.slice(2));
+// A single-file build has no arguments when it is opened by double-clicking: start the app and show it.
+const args = process.argv.slice(2);
+const isBundle = process.getBuiltinModule("node:sea").isSea();
+main(isBundle && args.length === 0 ? ["serve", "--open"] : args).then((code) => {
+  process.exitCode = code;
+});
