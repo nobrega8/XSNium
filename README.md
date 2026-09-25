@@ -1,5 +1,15 @@
 # XSNium
 
+[![CI](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml/badge.svg)](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml)
+[![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%E2%89%A522.18-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)](.github/workflows/ci.yml)
+[![Status](https://img.shields.io/badge/status-early%20development-orange)](#roadmap)
+[![Last commit](https://img.shields.io/github/last-commit/nobrega8/XSNium)](https://github.com/nobrega8/XSNium/commits/main)
+[![Issues](https://img.shields.io/github/issues/nobrega8/XSNium)](https://github.com/nobrega8/XSNium/issues)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+
 XSNium opens, inspects and fills in legacy Microsoft InfoPath `.xsn` form templates without InfoPath or Microsoft Office installed.
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The first goal is **compatibility and migration**: correct data and behaviour for legacy forms. **Pixel-perfect rendering** of the original look is also a goal. It comes in stages after the MVP and is measured, not assumed (see [Rendering fidelity](#rendering-fidelity)).
