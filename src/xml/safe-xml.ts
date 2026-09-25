@@ -10,10 +10,24 @@ import { XsnError } from "../package/errors.ts";
  * XML entities and numeric character references are ever decoded.
  */
 
+export interface XmlAttribute {
+  ns: string;
+  prefix: string;
+  local: string;
+  value: string;
+}
+
 export interface XmlElement {
   /** Namespace URI, or "" when the element is in no namespace. */
   ns: string;
   local: string;
+  prefix: string;
+  /** All attributes with their namespaces, in document order (xmlns declarations excluded). */
+  attributes: XmlAttribute[];
+  /** Namespace declarations made on this element. */
+  declarations: { prefix: string; uri: string }[];
+  /** Child elements and text in document order. */
+  content: (XmlElement | string)[];
   /** Attributes by their local name; xmlns declarations are removed. */
   attrs: Record<string, string>;
   children: XmlElement[];
@@ -73,18 +87,29 @@ function convert(node: RawNode, scope: Map<string, string>, depth: number): XmlE
   const qname = Object.keys(node).find((k) => k !== ":@");
   if (qname === undefined || qname.startsWith("#") || qname.startsWith("?") || qname.startsWith("!")) return undefined;
 
-  const rawAttrs = (node[":@"] ?? {}) as Record<string, string>;
+  const rawAttrs = Object.entries((node[":@"] ?? {}) as Record<string, string>).map(([k, v]) => [k.slice(ATTR_PREFIX.length), String(v)] as const);
   let inner = scope;
-  const declare = (prefix: string, uri: string) => {
+  const declarations: { prefix: string; uri: string }[] = [];
+  for (const [name, value] of rawAttrs) {
+    const isDefault = name === "xmlns";
+    if (!isDefault && !name.startsWith("xmlns:")) continue;
     if (inner === scope) inner = new Map(scope);
-    (inner as Map<string, string>).set(prefix, uri);
-  };
+    const declared = isDefault ? "" : name.slice(6);
+    (inner as Map<string, string>).set(declared, decodeEntities(value));
+    declarations.push({ prefix: declared, uri: decodeEntities(value) });
+  }
+
   const attrs: Record<string, string> = {};
-  for (const [key, value] of Object.entries(rawAttrs)) {
-    const name = key.slice(ATTR_PREFIX.length);
-    if (name === "xmlns") declare("", String(value));
-    else if (name.startsWith("xmlns:")) declare(name.slice(6), String(value));
-    else attrs[splitName(name).local] = decodeEntities(String(value));
+  const attributes: XmlAttribute[] = [];
+  for (const [name, raw] of rawAttrs) {
+    if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+    const { prefix: ap, local: al } = splitName(name);
+    if (ap !== "" && ap !== "xml" && !inner.has(ap)) {
+      throw new XsnError("MALFORMED", `Undeclared namespace prefix "${ap}"`);
+    }
+    const value = decodeEntities(raw);
+    attrs[al] = value;
+    attributes.push({ ns: ap === "" ? "" : ap === "xml" ? XML_NS : inner.get(ap)!, prefix: ap, local: al, value });
   }
 
   const { prefix, local } = splitName(qname);
@@ -94,15 +119,26 @@ function convert(node: RawNode, scope: Map<string, string>, depth: number): XmlE
   }
 
   const children: XmlElement[] = [];
+  const content: (XmlElement | string)[] = [];
   let text = "";
   for (const child of (node[qname] as RawNode[]) ?? []) {
-    if ("#text" in child) text += decodeEntities(String(child["#text"]));
-    else {
+    if ("#text" in child) {
+      const decoded = decodeEntities(String(child["#text"]));
+      text += decoded;
+      content.push(decoded);
+    } else if ("#cdata" in child) {
+      const cdata = ((child["#cdata"] as RawNode[]) ?? []).map((c) => String(c["#text"] ?? "")).join("");
+      text += cdata;
+      content.push(cdata);
+    } else {
       const el = convert(child, inner, depth + 1);
-      if (el) children.push(el);
+      if (el) {
+        children.push(el);
+        content.push(el);
+      }
     }
   }
-  return { ns, local, attrs, children, text, scope: inner };
+  return { ns, local, prefix, attributes, declarations, content, attrs, children, text, scope: inner };
 }
 
 export function parseXml(input: Buffer | string): XmlElement {
