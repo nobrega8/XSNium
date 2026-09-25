@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import pkg from "../../package.json" with { type: "json" };
 import { startServer } from "../server/server.ts";
 import { XsnError, buildFormDefinition, openXsn, readManifest, type ControlDefinition } from "../index.ts";
 
 const USAGE = `Usage:
+  xsnium --version                     Print the version
   xsnium inspect <form.xsn>            List package contents and diagnostics
   xsnium model <form.xsn>             Print the internal form definition summary as JSON
   xsnium serve [form.xsn] [--port N] [--open]
@@ -99,6 +101,10 @@ function extract(file: string, outDir: string): number {
 
 async function main(argv: string[]): Promise<number> {
   const [command, file, outDir] = argv;
+  if (command === "--version" || command === "-v") {
+    console.log(pkg.version);
+    return 0;
+  }
   try {
     if (command === "inspect" && file) return inspect(file);
     if (command === "model" && file) return model(file);
