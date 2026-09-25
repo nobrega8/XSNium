@@ -137,6 +137,8 @@ npm test          # all tests
 npm run typecheck # TypeScript
 ```
 
+The end-to-end tests in `tests/e2e/` drive the web UI in a real browser with Playwright (`playwright-core`). They use the Edge or Chrome already installed on the machine, download nothing, and skip themselves when no browser is found, so `npm test` still works on a bare machine or CI runner.
+
 Tests cover the package reader, manifest, schema, view and form builders, the data model, the rendering engine and the local server, plus malformed and hostile inputs (truncated cabinets, path traversal, decompression bombs, XXE, billion laughs, schema and view expansion bombs, forged `Host` and `Origin` headers).
 
 Tests that use real-world templates read `.xsn` files from `example_files/`. That folder is git-ignored because real forms often contain company data, and those tests are skipped when it is empty. Never commit real templates; use sanitised or synthetic fixtures instead (see [Contributing](#contributing)).
