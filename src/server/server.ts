@@ -178,6 +178,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
     if (method === "GET" && url.pathname === "/") {
       return send(res, 200, indexHtml.replace("__TOKEN__", token), { "Content-Type": "text/html; charset=utf-8" });
     }
+    if (method === "GET" && url.pathname === "/favicon.ico") return send(res, 204, "", {});
     const asset = method === "GET" ? statics.get(url.pathname) : undefined;
     if (asset) return send(res, 200, asset.body, { "Content-Type": asset.type });
 

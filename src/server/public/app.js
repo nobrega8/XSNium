@@ -246,7 +246,11 @@ function drawTable(node) {
       (child.rows ?? []).forEach((row, i) => {
         row.children.forEach((r, j) => {
           const tr = drawRow(r);
-          if (j === 0) tr.append(el("td", "row-cell")).lastChild.append(rowToolbar(child, i, row.path));
+          if (j === 0) {
+            const tools = el("td", "row-cell");
+            tools.append(rowToolbar(child, i, row.path));
+            tr.append(tools);
+          }
           body.append(tr);
         });
       });
