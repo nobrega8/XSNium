@@ -4,6 +4,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
 import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
 import { condXsnBytes } from "../helpers/cond-form.ts";
+import { submitXsnBytes } from "../helpers/submit-form.ts";
 import { PILOTS_XML, secondaryXsnBytes } from "../helpers/secondary-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
@@ -431,5 +432,24 @@ describe("printing in a real browser", () => {
     }
     assert.notEqual(await shown(".toolbar"), "none");
     assert.equal(await page.locator("#print").isEnabled(), true);
+  });
+});
+
+describe("submitting in a real browser", () => {
+  it("downloads a draft email instead of sending anything", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await page.setInputFiles("#open-form", { name: "submit.xsn", mimeType: "application/octet-stream", buffer: submitXsnBytes() });
+    await page.waitForSelector(".page button");
+    const download = page.waitForEvent("download");
+    await page.locator(".page button", { hasText: "Submit" }).click();
+    const file = await download;
+    assert.match(file.suggestedFilename(), /\.eml$/);
+    const chunks: Buffer[] = [];
+    for await (const chunk of await file.createReadStream()) chunks.push(chunk as Buffer);
+    const eml = Buffer.concat(chunks).toString("utf8");
+    assert.ok(eml.startsWith("X-Unsent: 1"));
+    assert.ok(eml.includes("To: boss@example.invalid"));
+    await page.waitForFunction(() => /nothing was sent/.test(document.getElementById("status")?.textContent ?? ""));
+    assert.deepEqual(errors, []);
   });
 });

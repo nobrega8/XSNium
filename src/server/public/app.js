@@ -124,10 +124,36 @@ function patchValue(path, value) {
   return true;
 }
 
+// Submitting never sends anything: the form is turned into a draft email file that the person opens, checks and sends.
+async function submitForm(adapter) {
+  try {
+    const res = await post("/api/submit", { adapter });
+    const blob = await res.blob();
+    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "message.eml";
+    const link = el("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    const recipients = Number(res.headers.get("X-Recipients") ?? 0);
+    const skipped = Number(res.headers.get("X-Skipped-Addresses") ?? 0);
+    say(
+      `Saved ${name}: a draft email with the form attached. Open it to check and send it; nothing was sent.` +
+        (recipients === 0 ? " It has no recipient." : "") +
+        (skipped > 0 ? ` ${skipped} address(es) were not valid and were left out.` : ""),
+      recipients === 0 || skipped > 0,
+    );
+  } catch (err) {
+    say(err.message, true);
+  }
+}
+
 function handleEvents(events) {
   for (const event of events) {
     if (event.type === "switchView") switchView(event.view);
-    else if (event.type === "submit") say(`Submitting to "${event.adapter}" is not supported yet`, true);
+    else if (event.type === "submit") submitForm(event.adapter);
     else if (event.type === "unsupported") say(`The form asked for an action that is not supported yet (${event.kind})`, true);
   }
 }
@@ -400,6 +426,7 @@ function drawControl(node) {
       button.type = "button";
       const ruleSets = Array.isArray(node.properties.ruleSets) ? node.properties.ruleSets : [];
       if (ruleSets.length > 0) button.addEventListener("click", () => runRuleSets(ruleSets, node.path));
+      else if (node.properties.action === "submit") button.addEventListener("click", () => submitForm(""));
       else {
         button.disabled = true;
         button.title = "This action is not supported yet";

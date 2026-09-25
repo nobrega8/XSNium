@@ -8,7 +8,9 @@ import { createInstance, loadInstance, type FormInstance } from "../data/instanc
 import { buildFormDefinition, mimeTypeOf } from "../form/build.ts";
 import type { FormDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
+import { readEmailSettings } from "../manifest/read.ts";
 import { openXsn, type XsnPackage } from "../package/xsn-package.ts";
+import { buildEml } from "../submit/eml.ts";
 import { expandView, type RenderNode } from "../render/expand.ts";
 import { FormRuntime, type Outcome } from "../runtime/runtime.ts";
 
@@ -186,8 +188,9 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
   const statics = new Map(Object.entries(STATIC_FILES).map(([url, f]) => [url, { body: readPublic(f.file), type: f.type }]));
 
   /** A runtime over some data, with calculated fields brought up to date. */
-  const start = (instance: FormInstance, form: FormDefinition): FormRuntime => {
-    const runtime = new FormRuntime(instance, form);
+  const start = (instance: FormInstance, form: FormDefinition, pkg: XsnPackage): FormRuntime => {
+    const settings = readEmailSettings(pkg);
+    const runtime = new FormRuntime(instance, form, { emailSettings: (name) => settings.get(name) });
     runtime.initialize();
     return runtime;
   };
@@ -195,7 +198,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
   const open = (bytes: Buffer, fileName: string): Session => {
     const pkg = openXsn(bytes);
     const form = buildFormDefinition(pkg);
-    return { pkg, form, runtime: start(createInstance(pkg, form), form), fileName };
+    return { pkg, form, runtime: start(createInstance(pkg, form), form, pkg), fileName };
   };
 
   if (options.file) {
@@ -260,7 +263,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
 
       case "POST /api/load-data": {
         const s = requireSession();
-        const next = start(loadInstance(await readBody(req, maxUpload), s.form), s.form);
+        const next = start(loadInstance(await readBody(req, maxUpload), s.form), s.form, s.pkg);
         next.adoptSecondary(s.runtime);
         s.runtime = next;
         return sendJson(res, 200, summary(s));
@@ -268,7 +271,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
 
       case "POST /api/new": {
         const s = requireSession();
-        const next = start(createInstance(s.pkg, s.form), s.form);
+        const next = start(createInstance(s.pkg, s.form), s.form, s.pkg);
         next.adoptSecondary(s.runtime);
         s.runtime = next;
         return sendJson(res, 200, summary(s));
@@ -365,6 +368,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
         const s = requireSession();
         const body = await readJson(req);
         return sendJson(res, 200, describe(s.runtime.clearBlob(str(body["path"], "path")), s.runtime.instance));
+      }
+
+      case "POST /api/submit": {
+        const s = requireSession();
+        const body = await readJson(req);
+        const adapter = typeof body["adapter"] === "string" ? body["adapter"] : undefined;
+        const { draft, skipped } = s.runtime.emailDraft(adapter);
+        const name = safeFileName(draft.subject, "message").replace(/\.+$/, "");
+        return send(res, 200, buildEml(draft), {
+          "Content-Type": "message/rfc822",
+          "Content-Disposition": `attachment; filename="${name}.eml"`,
+          "Content-Security-Policy": "sandbox",
+          "X-Skipped-Addresses": String(skipped),
+          "X-Recipients": String(draft.to.length + draft.cc.length + draft.bcc.length),
+        });
       }
 
       case "GET /api/xml": {

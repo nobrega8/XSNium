@@ -5,6 +5,7 @@ import { startServer, type RunningServer } from "../../src/server/server.ts";
 import { buildAttachment } from "../../src/data/blobs.ts";
 import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
 import { PILOTS_XML, secondaryXsnBytes } from "../helpers/secondary-form.ts";
+import { submitXsnBytes } from "../helpers/submit-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
@@ -375,5 +376,39 @@ describe("secondary data through the API", () => {
     await open();
     assert.equal((await load("Nope", PILOTS_XML)).status, 400);
     assert.equal((await load("Pilots", '<!DOCTYPE x [<!ENTITY e "boom">]><x>&e;</x>')).status, 400);
+  });
+});
+
+describe("submitting as a draft email", () => {
+  const open = () => api("POST", "/api/open", submitXsnBytes());
+
+  it("returns an unsent .eml with the form attached, and only when asked", async () => {
+    await open();
+    const res = await json("/api/submit", { adapter: "Send" });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "message/rfc822");
+    assert.equal(res.headers.get("content-disposition"), 'attachment; filename="Report_ Quarterly report.eml"');
+    assert.equal(res.headers.get("x-recipients"), "3");
+    assert.equal(res.headers.get("x-skipped-addresses"), "1");
+    const eml = await res.text();
+    assert.match(eml, /^X-Unsent: 1\r\nTo: boss@example\.invalid\r\n/);
+    assert.match(eml, /Subject: Report: Quarterly report\r\n/);
+  });
+
+  it("does not put the template's recipients in what the page is told", async () => {
+    const state = await (await open()).text();
+    assert.ok(!state.includes("example.invalid"), "no recipients in the state");
+    assert.match(state, /"status":"draft"/);
+  });
+
+  it("reports a form with no email submit", async () => {
+    await api("POST", "/api/open", blobXsnBytes());
+    assert.equal((await json("/api/submit", { adapter: "" })).status, 400);
+  });
+
+  it("needs the token like every other call", async () => {
+    await open();
+    const res = await fetch(`${base}/api/submit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    assert.equal(res.status, 401);
   });
 });
