@@ -249,12 +249,22 @@ export class FormInstance {
     if (uri === undefined) throw new XsnError("UNSUPPORTED_EXPRESSION", `Unknown namespace prefix "${last.prefix}"`);
     const schema = this.schemaNodeOf(parentNode.el)?.children.find((c) => c.ns === uri && c.name === last.local);
     if (!schema) throw new XsnError("INVALID_OPERATION", `The schema has no element "${last.local}" here`);
-    if (!schema.repeating) throw new XsnError("INVALID_OPERATION", `"${last.local}" is not a repeating element`);
     return { parent: parentNode.el, name: { ns: uri, local: last.local }, schema };
   }
 
   private siblings(ctx: { parent: DataElement; name: { ns: string; local: string } }): DataElement[] {
     return elementChildren(ctx.parent).filter((c) => c.ns === ctx.name.ns && c.local === ctx.name.local);
+  }
+
+  /** How many rows exist at a repeating (or optional) element, and how many the schema allows. */
+  rowInfo(path: string): { count: number; min: number; max: number | "unbounded" } {
+    const ctx = this.rowContext(path);
+    return { count: this.siblings(ctx).length, min: ctx.schema.minOccurs, max: ctx.schema.maxOccurs };
+  }
+
+  /** Make sure the node at `path` exists, creating optional single elements the schema allows. */
+  ensure(path: string): void {
+    if (this.select(path).length === 0) this.create(parsePath(path), undefined);
   }
 
   rowCount(path: string): number {

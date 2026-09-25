@@ -33,6 +33,20 @@ export const SAMPLE_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
 	<my:limited>x</my:limited>
 </my:root>`;
 
+/** The sample form as raw .xsn bytes, optionally with extra package files. */
+export function sampleXsnBytes(extra: { name: string; data: Buffer | string }[] = []): Buffer {
+  const manifest = SAMPLE_MANIFEST.replace(
+    '<xsf:property name="namespace" type="string" value="urn:example:my"></xsf:property>',
+    '<xsf:property name="namespace" type="string" value="urn:example:my"></xsf:property><xsf:property name="rootElement" type="string" value="root"></xsf:property>',
+  );
+  return buildCab([
+    { name: "manifest.xsf", data: manifest },
+    { name: "myschema.xsd", data: SAMPLE_SCHEMA },
+    { name: "template.xml", data: SAMPLE_TEMPLATE },
+    ...extra,
+  ]);
+}
+
 export function samplePackage(template: string = SAMPLE_TEMPLATE, manifestExtra = ""): XsnPackage {
   const manifest = SAMPLE_MANIFEST.replace(
     '<xsf:property name="namespace" type="string" value="urn:example:my"></xsf:property>',
