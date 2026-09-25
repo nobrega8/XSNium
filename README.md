@@ -238,4 +238,6 @@ Be respectful and constructive. Assume good faith, keep feedback about the code 
 
 ## License
 
-**No licence has been chosen yet.** Until one is added, the code is under default copyright, which means others cannot yet legally reuse, modify or redistribute it, even though the repository is public. A licence will be added before the project accepts outside contributions into `main`, and contributions will be accepted under that licence. If you plan to contribute, please open an issue to say so and follow it for the licence decision.
+XSNium is licensed under the [Mozilla Public License 2.0](LICENSE), the same family of licence LibreOffice uses. In short: you may use, modify and distribute it, including in commercial and closed-source products. If you change a file that is covered by this licence and distribute the result, you must share your changes to that file under the same licence. Code you add in your own new files can have any licence.
+
+Contributions are accepted under the same licence: by sending a pull request you agree that your work is released under it. Do not contribute code you cannot license this way, and do not copy code from InfoPath, Office, LibreOffice or any other project unless its licence allows it and you say where it came from.
