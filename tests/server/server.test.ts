@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import { after, before, describe, it } from "node:test";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
+import { buildAttachment } from "../../src/data/blobs.ts";
+import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
@@ -253,5 +255,87 @@ describe("the form's runtime through the API", () => {
     } finally {
       await fresh.close();
     }
+  });
+});
+
+describe("pictures and attachments through the API", () => {
+  const P = "/b:doc";
+  const upload = (kind: string, path: string, body: Buffer, name = "") =>
+    api("POST", "/api/blob", body, { "X-Blob-Path": encodeURIComponent(path), "X-Blob-Kind": kind, "X-File-Name": encodeURIComponent(name) });
+  const open = () => api("POST", "/api/open", blobXsnBytes());
+
+  it("stores a picture and serves it back as an inert image", async () => {
+    await open();
+    const res = await upload("picture", `${P}/b:photo`, TINY_PNG);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.changed.includes(`${P}/b:photo`));
+    assert.equal(body.values[`${P}/b:photo`], undefined, "the bytes are not sent back in the outcome");
+    const img = await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:photo`)}&t=${running.token}`);
+    assert.equal(img.status, 200);
+    assert.equal(img.headers.get("content-type"), "image/png");
+    assert.equal(img.headers.get("content-security-policy"), "sandbox");
+    assert.equal(img.headers.get("x-content-type-options"), "nosniff");
+    assert.deepEqual(Buffer.from(await img.arrayBuffer()), TINY_PNG);
+  });
+
+  it("refuses pictures that are not safe rasters", async () => {
+    await open();
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    assert.equal((await upload("picture", `${P}/b:photo`, svg)).status, 400);
+    assert.equal((await upload("picture", `${P}/b:note`, TINY_PNG)).status, 400);
+    assert.equal((await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:photo`)}&t=${running.token}`)).status, 404);
+  });
+
+  it("attaches a file and offers it for download with a safe name", async () => {
+    await open();
+    const data = Buffer.from("name,amount\nx,1\n");
+    assert.equal((await upload("attachment", `${P}/b:file`, data, "..\..\quarterly report.csv")).status, 200);
+    const res = await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:file`)}&t=${running.token}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "application/octet-stream");
+    assert.equal(res.headers.get("content-disposition"), "attachment; filename*=UTF-8''quarterly%20report.csv");
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), data);
+    assert.match(await (await api("GET", "/api/xml")).text(), /mso-infoPath-file-attachment-present/);
+  });
+
+  it("refuses to attach programs and scripts", async () => {
+    await open();
+    for (const name of ["setup.exe", "run.bat", "x.vbs"]) assert.equal((await upload("attachment", `${P}/b:file`, Buffer.from("x"), name)).status, 400, name);
+  });
+
+  it("does not download an attachment with a dangerous name that arrived in the data", async () => {
+    await open();
+    const forged = buildAttachment("ok.txt", Buffer.from("x"));
+    const name = Buffer.from("payload.exe\u0000", "utf16le");
+    const evil = Buffer.concat([forged.subarray(0, 20), Buffer.from([name.length / 2, 0, 0, 0]), name, Buffer.from("x")]);
+    evil.writeUInt32LE(1, 16);
+    const xml = `<b:doc xmlns:b="urn:example:blobs"><b:title>t</b:title><b:file>${evil.toString("base64")}</b:file></b:doc>`;
+    assert.equal((await api("POST", "/api/load-data", xml)).status, 200);
+    assert.equal((await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:file`)}&t=${running.token}`)).status, 403);
+  });
+
+  it("clears a field and reports nothing to serve", async () => {
+    await open();
+    await upload("picture", `${P}/b:photo`, TINY_PNG);
+    assert.equal((await json("/api/blob/clear", { path: `${P}/b:photo` })).status, 200);
+    assert.equal((await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:photo`)}&t=${running.token}`)).status, 404);
+  });
+
+  it("checks tokens, kinds and sizes", async () => {
+    await open();
+    assert.equal((await fetch(`${base}/api/blob?path=${encodeURIComponent(`${P}/b:photo`)}`)).status, 401);
+    assert.equal((await upload("nonsense", `${P}/b:photo`, TINY_PNG)).status, 400);
+    assert.equal((await upload("picture", `${P}/b:photo`, Buffer.alloc(300_000, 1))).status, 413);
+    assert.equal((await fetch(`${base}/api/state?t=${running.token}`)).status, 401, "the query token works only on the blob and image routes");
+  });
+
+  it("shows a stored picture as described data in the rendered view", async () => {
+    await open();
+    await upload("picture", `${P}/b:photo`, TINY_PNG);
+    const view = await (await api("GET", "/api/view?name=Main")).json();
+    const text = JSON.stringify(view);
+    assert.match(text, /"kind":"picture"/);
+    assert.ok(!text.includes(TINY_PNG.toString("base64")));
   });
 });

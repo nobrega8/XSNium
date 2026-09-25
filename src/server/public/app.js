@@ -262,6 +262,56 @@ function drawCheckbox(node) {
   return field(node, input);
 }
 
+function blobUrl(node) {
+  return `/api/blob?path=${encodeURIComponent(node.path)}&t=${encodeURIComponent(token)}&v=${node.blob?.size ?? 0}`;
+}
+
+function sizeText(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+// Send a file to the server as the value of a picture or attachment field.
+async function uploadBlob(node, kind, file) {
+  try {
+    const res = await api("POST", "/api/blob", file, {
+      "X-Blob-Path": encodeURIComponent(node.path),
+      "X-Blob-Kind": kind,
+      "X-File-Name": encodeURIComponent(file.name),
+    });
+    await applyOutcome(await res.json(), { structure: true });
+    say(kind === "picture" ? "Picture added" : `Attached ${file.name}`);
+  } catch (err) {
+    say(err.message, true);
+  }
+}
+
+async function clearBlob(node) {
+  try {
+    const res = await post("/api/blob/clear", { path: node.path });
+    await applyOutcome(await res.json(), { structure: true });
+  } catch (err) {
+    say(err.message, true);
+  }
+}
+
+// A file chooser behind a button. The file never leaves this computer except to the local server.
+function chooser(text, accept, onFile) {
+  const label = el("label", "tool", text);
+  const input = el("input");
+  input.type = "file";
+  input.hidden = true;
+  if (accept) input.accept = accept;
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    input.value = "";
+    if (file) onFile(file);
+  });
+  label.append(input);
+  return label;
+}
+
 function drawImage(node) {
   const source = node.properties.source;
   if (typeof source === "string") {
@@ -270,7 +320,51 @@ function drawImage(node) {
     img.src = `/api/resource?name=${encodeURIComponent(source)}&t=${encodeURIComponent(token)}`;
     return img;
   }
+  // A picture stored in the form's own data.
+  if (node.path && node.blob) {
+    const box = el("span", "blob");
+    if (node.blob.kind === "picture") {
+      const img = el("img", "picture");
+      img.alt = "";
+      img.src = blobUrl(node);
+      box.append(img, chooser("Change", "image/png,image/jpeg,image/gif,image/bmp", (f) => uploadBlob(node, "picture", f)));
+      const remove = el("button", "tool", "Remove");
+      remove.type = "button";
+      remove.addEventListener("click", () => clearBlob(node));
+      box.append(remove);
+    } else if (node.blob.kind === "empty") {
+      box.append(placeholder("Picture"), chooser("Add picture", "image/png,image/jpeg,image/gif,image/bmp", (f) => uploadBlob(node, "picture", f)));
+    } else {
+      box.append(placeholder("Picture", "This field does not hold a picture the page can show"));
+    }
+    return box;
+  }
   return el("span", "placeholder", "Picture");
+}
+
+function drawAttachment(node) {
+  const box = el("span", "blob attachment");
+  const info = node.blob;
+  if (!info) return placeholder("File attachment", "This field is not connected to data");
+  if (info.kind === "attachment") {
+    box.append(el("span", "file-name", `${info.fileName} (${sizeText(info.size)})`));
+    if (info.dangerous) box.append(placeholder("Blocked", "Programs and scripts are never offered for download"));
+    else {
+      const link = el("a", "tool", "Download");
+      link.href = blobUrl(node);
+      link.rel = "noopener";
+      box.append(link);
+    }
+    const remove = el("button", "tool", "Remove");
+    remove.type = "button";
+    remove.addEventListener("click", () => clearBlob(node));
+    box.append(remove);
+  } else if (info.kind === "empty") {
+    box.append(chooser("Attach a file", "", (f) => uploadBlob(node, "attachment", f)));
+  } else {
+    box.append(placeholder("Attachment", "This field holds data the page cannot read as an attachment"));
+  }
+  return box;
 }
 
 function placeholder(text, why) {
@@ -298,7 +392,7 @@ function drawControl(node) {
     case "checkbox": return drawCheckbox(node);
     case "image": return drawImage(node);
     case "hyperlink": return drawText(node, "url");
-    case "fileAttachment": return placeholder("File attachment", "File attachments are not supported yet");
+    case "fileAttachment": return drawAttachment(node);
     case "button": {
       const button = el("button", undefined, node.label || "Button");
       button.type = "button";

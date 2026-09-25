@@ -170,7 +170,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths and box styles done; text details, control chrome, conditional formatting and print to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
-**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. File attachments, embedded pictures, submission and data connections are not executed yet.
+**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Digital signatures, submission and data connections are not executed yet.
 **MVP goal:** the same, with validation and the common rules working, on a set of real forms.
 **Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a. The final application is intended to ship as a desktop app for Windows, macOS and Linux, reusing the same core and UI.
 
@@ -197,7 +197,7 @@ Contributions are welcome: bug reports, sanitised test forms, new control or rul
 
 - **Try your own forms and report what breaks.** Run `xsnium inspect` and `xsnium model` on a template and open an issue with what looks wrong. Include the `inspect` output, which lists detected features, rather than the form itself.
 - **Contribute a test form.** Real-world variety is the most valuable thing the project can get. See the rules below on removing private data.
-- **Pick up unsupported features.** The compatibility panel and the `[FEATURE]` lines in `inspect` show what is missing (rules, expressions, data connections, file attachments, more controls).
+- **Pick up unsupported features.** The compatibility panel and the `[FEATURE]` lines in `inspect` show what is missing (expressions, data connections, signatures, more controls).
 - **Improve documentation and examples.**
 
 ### Sending a pull request

@@ -78,3 +78,9 @@ img.picture { max-width: 100%; height: auto; }
 /* Fields the schema or the template says are wrong: a red dashed outline, as InfoPath draws them. */
 .invalid { outline: 1px dashed #d32f2f; outline-offset: -1px; }
 #problems { color: #d32f2f; }
+
+.blob { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.blob img.picture { max-width: 100%; height: auto; }
+.blob .tool, .blob a.tool { cursor: pointer; }
+a.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--accent); text-decoration: none; }
+label.tool { display: inline-block; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--text); cursor: pointer; }

@@ -23,6 +23,7 @@ import { FormRuntime, type Outcome } from "../runtime/runtime.ts";
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const DEFAULT_MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
+const MAX_INLINE_VALUE = 20_000;
 
 const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -65,7 +66,12 @@ function describe(outcome: Outcome, instance: FormInstance) {
   const values: Record<string, string> = {};
   for (const path of outcome.changed) {
     try {
-      values[path] = instance.getValue(path) ?? "";
+      const value = instance.getValue(path) ?? "";
+      // Pictures and attachments can be megabytes of base64; the page fetches those separately, and
+      // binary fields are never inlined however small they happen to be.
+      const node = instance.select(path)[0];
+      const binary = node?.kind === "element" && instance.schemaNodeOf(node.el)?.type?.name === "base64Binary";
+      if (!binary && value.length <= MAX_INLINE_VALUE) values[path] = value;
     } catch {
       /* a path the subset cannot address is simply not reported */
     }
@@ -207,8 +213,8 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
     if (!url.pathname.startsWith("/api/")) throw new HttpError(404, "NOT_FOUND", "Not found");
 
     // Everything below is the API: token required, and browsers must not be tricked into calling it.
-    // <img> requests cannot carry headers, so the image route alone also accepts the token in the query.
-    const supplied = req.headers["x-xsnium-token"] ?? (method === "GET" && url.pathname === "/api/resource" ? url.searchParams.get("t") : "");
+    // <img> requests and downloads cannot carry headers, so the image and blob routes alone also accept the token in the query.
+    const supplied = req.headers["x-xsnium-token"] ?? (method === "GET" && (url.pathname === "/api/resource" || url.pathname === "/api/blob") ? url.searchParams.get("t") : "");
     const given = Buffer.from(String(supplied ?? ""));
     if (given.length !== tokenBuffer.length || !timingSafeEqual(given, tokenBuffer)) throw new HttpError(401, "BAD_TOKEN", "Missing or wrong token");
     const requestOrigin = req.headers.origin;
@@ -279,6 +285,42 @@ export async function startServer(options: ServerOptions = {}): Promise<RunningS
       case "GET /api/validate": {
         const s = requireSession();
         return sendJson(res, 200, { issues: s.runtime.validate() });
+      }
+
+      case "GET /api/blob": {
+        const s = requireSession();
+        const path = url.searchParams.get("path") ?? "";
+        const blob = s.runtime.readBlob(path);
+        if (!blob) throw new HttpError(404, "NOT_FOUND", "Nothing is stored there");
+        if (blob.kind === "picture") {
+          // Only raster pictures recognised by their bytes; the sandbox policy keeps even a mislabelled file inert.
+          return send(res, 200, blob.bytes, { "Content-Type": blob.mime, "Content-Security-Policy": "sandbox" });
+        }
+        if (blob.dangerous) throw new HttpError(403, "BLOCKED", "Files of this type are not offered for download");
+        return send(res, 200, blob.bytes, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(blob.fileName)}`,
+          "Content-Security-Policy": "sandbox",
+        });
+      }
+
+      case "POST /api/blob": {
+        const s = requireSession();
+        const bytes = await readBody(req, maxUpload);
+        const path = decodeURIComponent(String(req.headers["x-blob-path"] ?? ""));
+        const kind = String(req.headers["x-blob-kind"] ?? "");
+        let outcome: Outcome;
+        if (kind === "picture") outcome = s.runtime.setPicture(path, bytes);
+        else if (kind === "attachment") {
+          outcome = s.runtime.setAttachment(path, decodeURIComponent(String(req.headers["x-file-name"] ?? "")), bytes);
+        } else throw new HttpError(400, "BAD_REQUEST", "Unknown kind of binary data");
+        return sendJson(res, 200, describe(outcome, s.runtime.instance));
+      }
+
+      case "POST /api/blob/clear": {
+        const s = requireSession();
+        const body = await readJson(req);
+        return sendJson(res, 200, describe(s.runtime.clearBlob(str(body["path"], "path")), s.runtime.instance));
       }
 
       case "GET /api/xml": {

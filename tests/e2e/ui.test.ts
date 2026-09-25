@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { startServer, type RunningServer } from "../../src/server/server.ts";
+import { TINY_PNG, blobXsnBytes } from "../helpers/blob-form.ts";
 import { runtimeXsnBytes } from "../helpers/runtime-form.ts";
 import { MY, sampleXsnBytes } from "../helpers/sample-form.ts";
 
@@ -303,5 +304,69 @@ describe("calculations, rules and validation in a real browser", () => {
     await page.waitForFunction(() => (document.querySelector('[data-path="/r:order/r:lines[3]/r:lineTotal"]') as HTMLInputElement).value === "20");
     assert.equal(await at(`${P}/r:linesTotal`).inputValue(), "51");
     assert.deepEqual(errors, []);
+  });
+});
+
+describe("pictures and attachments in a real browser", () => {
+  async function openBlobForm(): Promise<void> {
+    await page.setInputFiles("#open-form", { name: "blobs.xsn", mimeType: "application/octet-stream", buffer: blobXsnBytes() });
+    await page.waitForSelector(".page");
+  }
+
+  it("adds a picture that the browser can decode, and removes it", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openBlobForm();
+    assert.match(await page.locator(".page").innerText(), /Add picture/);
+    await page.locator('label:has-text("Add picture") input[type=file]').setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: TINY_PNG });
+    await page.waitForSelector(".blob img.picture");
+    // The image loaded through the token-carrying URL and is a real picture, not a broken one.
+    await page.waitForFunction(() => (document.querySelector(".blob img.picture") as HTMLImageElement).complete);
+    assert.equal(await page.locator(".blob img.picture").evaluate((img: HTMLImageElement) => img.naturalWidth), 1);
+    await page.locator("button.tool", { hasText: "Remove" }).click();
+    await page.waitForFunction(() => !document.querySelector(".blob img.picture"));
+    assert.deepEqual(errors, []);
+  });
+
+  it("refuses a file that is not a picture and says why", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openBlobForm();
+    await page.locator('label:has-text("Add picture") input[type=file]').setInputFiles({ name: "x.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'><script>window.__pwned=1</script></svg>") });
+    await page.waitForFunction(() => document.getElementById("status")?.className === "error");
+    assert.match(await page.locator("#status").innerText(), /PNG, JPEG, GIF or BMP/);
+    assert.equal(await page.locator(".blob img.picture").count(), 0);
+    assert.equal(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned), undefined);
+  });
+
+  it("attaches a file, offers it for download, and blocks programs", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openBlobForm();
+    await page.locator('label:has-text("Attach a file") input[type=file]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello attachment") });
+    await page.waitForSelector(".attachment .file-name");
+    assert.match(await page.locator(".attachment .file-name").innerText(), /notes\.txt \(16 B\)/);
+    const download = page.waitForEvent("download");
+    await page.locator(".attachment a", { hasText: "Download" }).click();
+    const file = await download;
+    assert.equal(file.suggestedFilename(), "notes.txt");
+    const chunks: Buffer[] = [];
+    for await (const chunk of await file.createReadStream()) chunks.push(chunk as Buffer);
+    assert.equal(Buffer.concat(chunks).toString(), "hello attachment");
+
+    await page.locator("button.tool", { hasText: "Remove" }).click();
+    await page.waitForSelector('label:has-text("Attach a file")');
+    await page.locator('label:has-text("Attach a file") input[type=file]').setInputFiles({ name: "setup.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
+    await page.waitForFunction(() => document.getElementById("status")?.className === "error");
+    assert.match(await page.locator("#status").innerText(), /cannot be attached/);
+  });
+
+  it("keeps the picture and the attachment in the saved XML", async (t) => {
+    if (skipReason) return t.skip(skipReason);
+    await openBlobForm();
+    await page.locator('label:has-text("Add picture") input[type=file]').setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: TINY_PNG });
+    await page.waitForSelector(".blob img.picture");
+    await page.locator('label:has-text("Attach a file") input[type=file]').setInputFiles({ name: "a.txt", mimeType: "text/plain", buffer: Buffer.from("x") });
+    await page.waitForSelector(".attachment .file-name");
+    const xml = await exportedXml();
+    assert.match(xml, new RegExp(`<b:photo>${TINY_PNG.toString("base64").replace(/[+/=]/g, "\$&")}</b:photo>`));
+    assert.match(xml, /mso-infoPath-file-attachment-present/);
   });
 });
