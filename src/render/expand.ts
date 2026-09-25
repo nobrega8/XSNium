@@ -1,5 +1,5 @@
 import type { FormInstance } from "../data/instance.ts";
-import type { ControlDefinition, ControlType, ViewDefinition } from "../form/model.ts";
+import type { ControlDefinition, ControlType, Presentation, ViewDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 
 /**
@@ -27,6 +27,8 @@ export interface RenderNode {
   /** Whether the bound node exists in the data. */
   exists?: boolean;
   properties: Record<string, unknown>;
+  /** How the original view drew this element (sanitised); front ends may ignore it. */
+  presentation?: Presentation;
   children?: RenderNode[];
   /** Repeating or optional structures: one entry per existing row. */
   rows?: RenderRow[];
@@ -36,6 +38,10 @@ export interface RenderNode {
 export interface RenderedView {
   name: string;
   nodes: RenderNode[];
+  /** The view's own stylesheet, sanitised and scoped under .xsn-view. */
+  css?: string;
+  /** Width the view was designed for. */
+  width?: string;
 }
 
 const MAX_RENDER_NODES = 500_000;
@@ -67,7 +73,20 @@ class Expander {
   }
 
   nodes(controls: ControlDefinition[], suffix: string): RenderNode[] {
-    return controls.map((c) => this.node(c, suffix));
+    return controls.flatMap((c) => this.nodeOrInline(c, suffix));
+  }
+
+  /** Conditional content is inlined while its node exists (or does not, if negated) and dropped otherwise. */
+  private nodeOrInline(c: ControlDefinition, suffix: string): RenderNode[] {
+    if (c.type !== "conditional") return [this.node(c, suffix)];
+    const path = typeof c.properties["path"] === "string" ? this.concretize(c.properties["path"]) : undefined;
+    let exists = false;
+    try {
+      exists = path !== undefined && this.instance.select(path).length > 0;
+    } catch {
+      exists = false;
+    }
+    return exists !== (c.properties["negate"] === true) ? this.nodes(c.children ?? [], suffix) : [];
   }
 
   private node(c: ControlDefinition, suffix: string): RenderNode {
@@ -75,9 +94,15 @@ class Expander {
     const id = suffix ? `${c.id}${suffix}` : c.id;
     const out: RenderNode = { id, type: c.type, properties: c.properties };
     if (c.label !== undefined) out.label = c.label;
+    if (c.presentation !== undefined) out.presentation = c.presentation;
 
     if (c.type === "repeatingSection" || c.type === "repeatingTable") {
       this.expandRows(c, out, suffix);
+      return out;
+    }
+
+    if (c.type === "placeholder") {
+      this.expandPlaceholder(c, out);
       return out;
     }
 
@@ -95,6 +120,23 @@ class Expander {
     }
     if (c.children) out.children = this.nodes(c.children, suffix);
     return out;
+  }
+
+  /** A "click to add" area: it can insert the node its view names, as far as the schema allows. */
+  private expandPlaceholder(c: ControlDefinition, out: RenderNode): void {
+    const insertPath = c.properties["insertPath"];
+    if (typeof insertPath !== "string") {
+      out.repeat = { path: "", count: 0, canAdd: false, canRemove: false };
+      return;
+    }
+    const path = this.concretize(insertPath);
+    out.path = path;
+    try {
+      const info = this.instance.rowInfo(path);
+      out.repeat = { path, count: info.count, canAdd: info.max === "unbounded" || info.count < info.max, canRemove: info.count > info.min };
+    } catch {
+      out.repeat = { path, count: 0, canAdd: false, canRemove: false };
+    }
   }
 
   private expandRows(c: ControlDefinition, out: RenderNode, suffix: string): void {
@@ -129,5 +171,10 @@ class Expander {
 
 /** Expand one view against the current data. */
 export function expandView(view: ViewDefinition, instance: FormInstance): RenderedView {
-  return { name: view.name, nodes: new Expander(instance).nodes(view.controls, "") };
+  return {
+    name: view.name,
+    nodes: new Expander(instance).nodes(view.controls, ""),
+    ...(view.css !== undefined ? { css: view.css } : {}),
+    ...(view.width !== undefined ? { width: view.width } : {}),
+  };
 }

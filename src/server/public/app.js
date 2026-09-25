@@ -11,6 +11,29 @@ const statusEl = $("status");
 let state = { loaded: false };
 let currentView = null;
 
+// Original layout follows the look the form was designed with; modern layout is the plain responsive one.
+let original = true;
+try {
+  original = localStorage.getItem("xsnium-original-layout") !== "off";
+} catch {
+  /* storage can be unavailable; keep the default */
+}
+const viewSheet = new CSSStyleSheet();
+const TAGS = new Set(["div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "i", "em", "u", "sup", "sub", "ul", "ol", "li"]);
+const ALIGNS = new Set(["left", "center", "right", "justify"]);
+const VALIGNS = new Set(["top", "middle", "bottom", "baseline"]);
+
+// Apply the sanitised look of a form element. The server has already allow-listed every value; styles go
+// through the CSSOM (never a style attribute), which the content security policy permits.
+function look(presentation, element) {
+  if (!original || !presentation) return element;
+  if (presentation.className) for (const name of presentation.className.split(" ")) if (name) element.classList.add(name);
+  for (const [property, value] of Object.entries(presentation.style ?? {})) element.style.setProperty(property, value);
+  if (presentation.align && ALIGNS.has(presentation.align)) element.setAttribute("align", presentation.align);
+  if (presentation.vAlign && VALIGNS.has(presentation.vAlign)) element.setAttribute("valign", presentation.vAlign);
+  return element;
+}
+
 async function api(method, url, body, headers) {
   const init = { method, headers: { "X-XSNium-Token": token, ...headers } };
   if (body !== undefined) init.body = body;
@@ -170,7 +193,10 @@ function placeholder(text, why) {
 function drawControl(node) {
   switch (node.type) {
     case "label":
-      if (node.label !== undefined) return el("span", "label", node.label);
+      if (node.label !== undefined) {
+        const text = (node.properties.spaceBefore ? " " : "") + node.label + (node.properties.spaceAfter ? " " : "");
+        return el("span", "label", text);
+      }
       // A calculated or bound display value.
       return el("span", "value", node.value ?? "");
     case "text": return drawText(node, "text");
@@ -191,9 +217,31 @@ function drawControl(node) {
       button.title = "Rules and actions are not supported yet";
       return button;
     }
+    case "placeholder": return drawPlaceholder(node);
     case "unknown": return placeholder(String(node.properties.xctname ?? "control"), "Unsupported control");
     default: return el("span");
   }
+}
+
+// The "click to add" area of an optional section or repeating item.
+function drawPlaceholder(node) {
+  const area = el("div", "optionalPlaceholder", node.label || "Add");
+  if (!node.repeat?.canAdd) {
+    // Nothing more can be inserted here (or the view names no node): InfoPath does not show it either.
+    area.hidden = true;
+    return area;
+  }
+  area.tabIndex = 0;
+  area.setAttribute("role", "button");
+  const add = () => rows(node.repeat.path, "add");
+  area.addEventListener("click", add);
+  area.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      add();
+    }
+  });
+  return area;
 }
 
 function drawChildren(parent, nodes) {
@@ -227,12 +275,14 @@ function addButton(node, text) {
 function drawRepeatingSection(node) {
   const box = el("div", "repeating");
   (node.rows ?? []).forEach((row, i) => {
-    const item = el("div", "row");
+    // The look in the view (borders, minimum height) describes one row, so it goes on the row, not on the
+    // container, which also holds the "add" button when there are no rows.
+    const item = look(node.presentation, el("div", "row"));
     item.append(rowToolbar(node, i, row.path));
     drawChildren(item, row.children);
     box.append(item);
   });
-  if (node.repeat && (node.repeat.canAdd || node.rows.length === 0)) {
+  if (node.repeat && !node.properties.hasPlaceholder && (node.repeat.canAdd || node.rows.length === 0)) {
     const label = typeof node.properties.addLabel === "string" ? node.properties.addLabel : "";
     box.append(addButton(node, node.rows.length === 0 ? (label ? `Add ${label}` : "Add") : label ? `Add another ${label}` : "Add another"));
   }
@@ -241,6 +291,16 @@ function drawRepeatingSection(node) {
 
 function drawTable(node) {
   const table = el("table", "layout");
+  look(node.presentation, table);
+  if (original && node.presentation?.colWidths) {
+    const group = el("colgroup");
+    for (const width of node.presentation.colWidths) {
+      const col = el("col");
+      if (width) col.style.setProperty("width", width);
+      group.append(col);
+    }
+    table.append(group);
+  }
   const body = el("tbody");
   table.append(body);
   for (const child of node.children ?? []) {
@@ -257,12 +317,14 @@ function drawTable(node) {
           body.append(tr);
         });
       });
-      const tr = el("tr", "add-row");
-      const td = el("td");
-      td.colSpan = 99;
-      td.append(addButton(child, "Add row"));
-      tr.append(td);
-      body.append(tr);
+      if (!child.properties.hasPlaceholder) {
+        const tr = el("tr", "add-row");
+        const td = el("td");
+        td.colSpan = 99;
+        td.append(addButton(child, "Add row"));
+        tr.append(td);
+        body.append(tr);
+      }
     }
   }
   return table;
@@ -270,8 +332,10 @@ function drawTable(node) {
 
 function drawRow(node) {
   const tr = el("tr");
+  look(node.presentation, tr);
   for (const cell of node.children ?? []) {
     const td = el("td");
+    look(cell.presentation, td);
     if (cell.properties.colSpan) td.colSpan = cell.properties.colSpan;
     if (cell.properties.rowSpan) td.rowSpan = cell.properties.rowSpan;
     drawChildren(td, cell.children);
@@ -280,8 +344,23 @@ function drawRow(node) {
   return tr;
 }
 
+function drawBox(node) {
+  const tag = TAGS.has(node.presentation?.tag) ? node.presentation.tag : "span";
+  return drawChildren(look(node.presentation, el(tag)), node.children);
+}
+
+// Tables and rows apply their own look; every other node gets it here.
 function draw(node) {
+  const elements = drawNode(node);
+  if (node.type !== "layoutTable" && node.type !== "layoutRow" && node.type !== "box" && node.type !== "repeatingSection" && node.type !== "repeatingTable") {
+    for (const element of elements) look(node.presentation, element);
+  }
+  return elements;
+}
+
+function drawNode(node) {
   switch (node.type) {
+    case "box": return [drawBox(node)];
     case "layoutTable": return [drawTable(node)];
     case "layoutRow": return [drawRow(node)];
     case "section": {
@@ -301,8 +380,19 @@ async function refresh() {
   if (!state.loaded) return;
   const res = await api("GET", `/api/view?name=${encodeURIComponent(currentView ?? "")}`);
   const view = await res.json();
-  const page = el("div", "page");
-  drawChildren(page, view.nodes);
+  const page = el("div", original ? "page original" : "page");
+  let host = page;
+  if (original) {
+    // The view's stylesheet is scoped to .xsn-view, so it can only ever style the form itself.
+    host = el("div", "xsn-view");
+    if (view.width) host.style.setProperty("width", view.width);
+    page.append(host);
+    viewSheet.replaceSync(view.css ?? "");
+    document.adoptedStyleSheets = [viewSheet];
+  } else {
+    document.adoptedStyleSheets = [];
+  }
+  drawChildren(host, view.nodes);
   stage.replaceChildren(page);
 }
 
@@ -390,6 +480,17 @@ $("new-data").addEventListener("click", async () => {
 
 $("view-select").addEventListener("change", (event) => {
   currentView = event.target.value;
+  refresh().catch((err) => say(err.message, true));
+});
+
+$("layout-toggle").checked = original;
+$("layout-toggle").addEventListener("change", (event) => {
+  original = event.target.checked;
+  try {
+    localStorage.setItem("xsnium-original-layout", original ? "on" : "off");
+  } catch {
+    /* not persisted, still applied */
+  }
   refresh().catch((err) => say(err.message, true));
 });
 

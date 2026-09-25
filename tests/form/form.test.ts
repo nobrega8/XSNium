@@ -73,7 +73,7 @@ describe("buildFormDefinition", () => {
       ["First", false, "view1.xsl"],
       ["Second", true, "view2.xsl"],
     ]);
-    assert.deepEqual(f.views[0]?.boundPaths, ["/my:root/my:name"]);
+    assert.deepEqual(f.views[0]?.boundPaths, ["/my:root/my:name", "/my:root/my:late"]);
     assert.deepEqual(f.views[0]?.controls, []);
   });
 

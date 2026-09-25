@@ -134,11 +134,23 @@ describe("structure and data context", () => {
     assert.deepEqual(ofType(controls, "label").map((l) => l.label), ["Header"]);
   });
 
-  it("skips optional-section placeholders and shows conditional content", () => {
+  it("shows content only while its node exists, and the placeholder while it does not", () => {
     const r = parse(`<xsl:choose><xsl:when test="my:group"><div>Shown</div></xsl:when>
       <xsl:otherwise><div class="optionalPlaceholder" xd:xmlToEdit="g">Click to add</div></xsl:otherwise></xsl:choose>`);
-    assert.deepEqual(ofType(r.controls, "label").map((l) => l.label), ["Shown"]);
-    assert.ok(r.diagnostics.some((d) => /conditional/.test(d.message)));
+    const [when, otherwise] = r.controls;
+    assert.deepEqual([when?.type, when?.properties["path"], when?.properties["negate"]], ["conditional", "/my:root/my:group", false]);
+    assert.deepEqual(when?.children?.map((c) => c.label), ["Shown"]);
+    assert.deepEqual([otherwise?.type, otherwise?.properties["negate"]], ["conditional", true]);
+    const placeholder = otherwise?.children?.[0];
+    assert.deepEqual([placeholder?.type, placeholder?.label, placeholder?.properties["xmlToEdit"]], ["placeholder", "Click to add", "g"]);
+    assert.equal(r.diagnostics.filter((d) => /conditional/.test(d.message)).length, 0, "tests it understands are not reported");
+  });
+
+  it("handles xsl:if on a plain path, and still shows what it cannot evaluate", () => {
+    const r = parse(`<xsl:if test="my:group"><div>Only when present</div></xsl:if><xsl:if test="my:a = 'x'"><div>Unknown test</div></xsl:if>`);
+    assert.deepEqual(r.controls.map((c) => c.type), ["conditional", "label"]);
+    assert.equal(r.controls[1]?.label, "Unknown test");
+    assert.ok(r.diagnostics.some((d) => /1 conditional block/.test(d.message)));
   });
 
   it("does not loop on recursive templates", () => {
@@ -191,11 +203,17 @@ describe("optional sections", () => {
   const body = `<xsl:apply-templates select="my:group/my:opt" mode="_o"/><div class="optionalPlaceholder" xd:xmlToEdit="opt_1" xd:action="xCollection::insert"><font>Insert the option</font></div>`;
   const tpl = `<xsl:template match="my:opt" mode="_o"><div xd:xctname="RepeatingSection" xd:CtrlId="OPT"><span xd:xctname="PlainText" xd:CtrlId="F" xd:binding="my:f"/></div></xsl:template>`;
 
-  it("uses the placeholder text as the label for adding the section", () => {
+  it("turns the click-to-add area into a placeholder control that names what it inserts", () => {
     const { controls } = parse(body, tpl);
-    const section = controls.find((c) => c.id === "OPT")!;
-    assert.equal(section.properties["addLabel"], "Insert the option");
-    assert.equal(ofType(controls, "label").length, 0, "the placeholder text is not shown as a label");
+    assert.deepEqual(controls.map((c) => c.type), ["repeatingSection", "placeholder"]);
+    const placeholder = controls[1]!;
+    assert.deepEqual([placeholder.label, placeholder.properties["xmlToEdit"]], ["Insert the option", "opt_1"]);
+    assert.equal(ofType(controls, "label").length, 0, "the placeholder text is not a plain label");
+  });
+
+  it("drops the design-time height of a section but keeps its other styling", () => {
+    const { controls } = parse(`<div class="xdSection" style="HEIGHT: 1304px; WIDTH: 100%; BORDER-TOP: 1pt solid" xd:xctname="Section" xd:CtrlId="S"><span xd:xctname="PlainText" xd:CtrlId="P" xd:binding="my:f"/></div>`);
+    assert.deepEqual(controls[0]?.presentation?.style, { width: "100%", "border-top": "1pt solid" });
   });
 
   it("reports the names of nodes the view treats as optional", () => {

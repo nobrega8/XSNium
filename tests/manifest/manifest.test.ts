@@ -40,6 +40,7 @@ describe("parseManifest", () => {
     ]);
     assert.deepEqual(m.views[0]?.bindings, [
       { name: "name_1", item: "/my:root/my:name", component: "xField", type: "plain" },
+      { name: "late_2", item: "/my:root/my:late", component: "xField", type: "plain" },
     ]);
   });
 

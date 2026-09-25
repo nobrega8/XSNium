@@ -5,6 +5,7 @@ import type { PackageEntry, XsnPackage } from "../package/xsn-package.ts";
 import type { Facets, SchemaModel, SchemaNode } from "../schema/model.ts";
 import { readSchema } from "../schema/read.ts";
 import { joinPath, parseView } from "../view/parser.ts";
+import { safeLength } from "../view/style.ts";
 import { schemaNodeAtPath } from "./schema-path.ts";
 import type {
   DataSourceDefinition,
@@ -230,6 +231,39 @@ function attachButtonRules(controls: ViewDefinition["controls"], buttons: Manife
   visit(controls);
 }
 
+/** Width the view was designed for, from the manifest's properties of the view file. */
+function viewWidth(manifest: ManifestModel, file: string | undefined): string | undefined {
+  const declared = manifest.files.find((f) => f.name.toLowerCase() === (file ?? "").toLowerCase())?.properties["viewWidth"];
+  return safeLength(declared);
+}
+
+/**
+ * A "click to add" placeholder names its node with an xmlToEdit name; the manifest gives that name's path.
+ * Repeating structures that have such a placeholder do not need a second, generic add button.
+ */
+function linkPlaceholders(controls: ViewDefinition["controls"], itemByName: Map<string, string>): void {
+  const all: ViewDefinition["controls"] = [];
+  const collect = (cs: ViewDefinition["controls"]) => {
+    for (const c of cs) {
+      all.push(c);
+      if (c.children) collect(c.children);
+    }
+  };
+  collect(controls);
+  const insertPaths = new Set<string>();
+  for (const c of all) {
+    const name = c.type === "placeholder" ? c.properties["xmlToEdit"] : undefined;
+    const item = typeof name === "string" ? itemByName.get(name) : undefined;
+    if (item) {
+      c.properties["insertPath"] = item;
+      insertPaths.add(item);
+    }
+  }
+  for (const c of all) {
+    if ((c.type === "repeatingSection" || c.type === "repeatingTable") && c.binding && insertPaths.has(c.binding)) c.properties["hasPlaceholder"] = true;
+  }
+}
+
 function buildViews(
   manifest: ManifestModel,
   pkg: XsnPackage,
@@ -243,6 +277,7 @@ function buildViews(
   const present = new Set(pkg.entries.map((e) => e.name.toLowerCase()));
   return manifest.views.map((v, i) => {
     let controls: ViewDefinition["controls"] = [];
+    let css = "";
     if (v.file !== undefined && present.has(v.file.toLowerCase())) {
       try {
         const parsed = parseView(pkg.read(v.file), {
@@ -250,12 +285,14 @@ function buildViews(
           typeOfPath: (p) => schemaNodeAtPath(schema, p, uriByPrefix)?.type?.name,
         });
         controls = parsed.controls;
+        css = parsed.css;
         attachButtonRules(controls, v.buttons);
         const itemByName = new Map(v.bindings.map((b) => [b.name, b.item]));
         for (const name of parsed.optionalNames) {
           const item = itemByName.get(name);
           if (item) optionalNodes.add(item);
         }
+        linkPlaceholders(controls, itemByName);
         for (const d of parsed.diagnostics) diagnostics.push({ level: d.level, category: "VIEW", message: `${v.name}: ${d.message}` });
       } catch (err) {
         // A view that cannot be read must not prevent the form from opening.
@@ -269,6 +306,8 @@ function buildViews(
       isDefault: v.isDefault,
       ...(v.file !== undefined ? { source: v.file } : {}),
       controls,
+      ...(css !== "" ? { css } : {}),
+      ...(viewWidth(manifest, v.file) !== undefined ? { width: viewWidth(manifest, v.file)! } : {}),
       boundPaths: v.bindings.map((b) => b.item),
     };
   });

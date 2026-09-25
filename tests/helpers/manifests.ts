@@ -26,6 +26,7 @@ export const SAMPLE_MANIFEST = `<?xml version="1.0" encoding="UTF-8"?>
       <xsf:mainpane transform="view1.xsl"></xsf:mainpane>
       <xsf:editing>
         <xsf:xmlToEdit name="name_1" item="/my:root/my:name"><xsf:editWith component="xField" type="plain"></xsf:editWith></xsf:xmlToEdit>
+        <xsf:xmlToEdit name="late_2" item="/my:root/my:late"><xsf:editWith component="xField" type="plain"></xsf:editWith></xsf:xmlToEdit>
       </xsf:editing>
     </xsf:view>
     <xsf:view name="Second"><xsf:mainpane transform="view2.xsl"></xsf:mainpane></xsf:view>

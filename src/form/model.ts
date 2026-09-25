@@ -27,14 +27,38 @@ export type ControlType =
   /** File attachment control: stores the file inside the form data (see the InfoPath file attachment format). */
   | "fileAttachment"
   /** Layout structure kept from the original view, so labels and columns stay where the author put them. */
+  /** A styled wrapper (div, span, heading, ...) around other content, kept for its look. */
+  | "box"
+  /** Content shown only while a data node exists (an xsl:when or xsl:if test). The renderer inlines or drops it. */
+  | "conditional"
+  /** The "click to add" area of an optional section or repeating item. Pressing it inserts the node. */
+  | "placeholder"
   | "layoutTable"
   | "layoutRow"
   | "layoutCell"
   | "unknown";
 
+/**
+ * How an element looked in the original view. Every value is sanitised (allow-listed properties, plain
+ * values); it is a description of appearance, never markup or script.
+ */
+export interface Presentation {
+  /** Element to draw for boxes and headings: div, span, h1..h6, p, strong, and so on. */
+  tag?: string;
+  /** Class names from the view; its stylesheet (ViewDefinition.css) gives them their look. */
+  className?: string;
+  /** Sanitised inline declarations, by property name. */
+  style?: Record<string, string>;
+  align?: string;
+  vAlign?: string;
+  /** Table column widths, in order (empty string where the view gave none). */
+  colWidths?: string[];
+}
+
 export interface ControlDefinition {
   id: string;
   type: ControlType;
+  presentation?: Presentation;
   /** XPath of the bound data node, using the form's namespace prefixes. */
   binding?: string;
   label?: string;
@@ -51,6 +75,10 @@ export interface ViewDefinition {
   source?: string;
   /** Empty until the view parser is implemented. */
   controls: ControlDefinition[];
+  /** The view's own stylesheets, sanitised and scoped under .xsn-view. */
+  css?: string;
+  /** Width the view was designed for, e.g. "750px". */
+  width?: string;
   /** Data nodes the original view exposes for editing, before they are mapped to controls. */
   boundPaths: string[];
 }

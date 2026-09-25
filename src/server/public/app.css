@@ -36,26 +36,41 @@ main { padding: 16px; }
 .empty { color: var(--muted); text-align: center; margin-top: 15vh; }
 .page { max-width: 1100px; margin: 0 auto; padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
 
-table.layout { border-collapse: collapse; width: 100%; margin: 4px 0; }
-table.layout td { vertical-align: top; padding: 3px 6px; }
-.section, .repeating .row { padding: 6px 8px; margin: 4px 0; border: 1px dashed var(--line); border-radius: 6px; }
+.page:not(.original) table.layout { border-collapse: collapse; width: 100%; margin: 4px 0; }
+.page:not(.original) table.layout td { vertical-align: top; padding: 3px 6px; }
+.page:not(.original) .section, .repeating .row { padding: 6px 8px; margin: 4px 0; border: 1px dashed var(--line); border-radius: 6px; }
 .repeating .row { position: relative; border-style: solid; }
 .row-tools { float: right; display: inline-flex; gap: 4px; }
 .row-cell { white-space: nowrap; }
-.label { display: inline-block; margin: 2px 4px 2px 0; }
+.page:not(.original) .label { display: inline-block; margin: 2px 4px 2px 0; }
 .value { color: var(--muted); }
 
-input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="url"], select, textarea, input:not([type]) {
+.page:not(.original) input[type="text"], .page:not(.original) input[type="number"], .page:not(.original) input[type="date"], .page:not(.original) input[type="datetime-local"], .page:not(.original) input[type="url"], .page:not(.original) select, .page:not(.original) textarea, .page:not(.original) input:not([type]) {
   font: inherit; width: 100%; min-width: 6ch; padding: 3px 6px; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 4px;
 }
-textarea { min-height: 4.5em; resize: vertical; }
+.page:not(.original) textarea { min-height: 4.5em; resize: vertical; }
 input.missing { border-style: dashed; }
 select.unavailable { border-style: dashed; color: var(--muted); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
-input[type="radio"], input[type="checkbox"] { width: auto; margin: 2px 4px; }
+.page:not(.original) input[type="radio"], .page:not(.original) input[type="checkbox"] { width: auto; margin: 2px 4px; }
 
 button.tool, button.add { font: inherit; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--text); cursor: pointer; }
 button.add { margin: 4px 0; color: var(--accent); }
 button:disabled { opacity: .5; cursor: default; }
 .placeholder { display: inline-block; padding: 1px 8px; color: var(--muted); border: 1px dashed var(--line); border-radius: 4px; font-size: 12px; }
 img.picture { max-width: 100%; height: auto; }
+
+/* Original layout: the form draws itself with its own stylesheet, scoped under .xsn-view. */
+.page.original { padding: 8px; }
+.xsn-view { margin: 0 auto; width: max-content; max-width: 100%; color-scheme: light; background: #fff; color: #000; }
+.xsn-view input, .xsn-view select, .xsn-view textarea, .xsn-view button { font: inherit; }
+.xsn-view textarea { resize: vertical; }
+#layout-label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.page.original .repeating .row { border: 0; padding: 0; margin: 0; }
+.page.original .repeating { margin: 0; }
+
+/* The click-to-add area. The view's own class gives font and colour; the bullet stands in for the icon InfoPath drew. */
+.optionalPlaceholder { cursor: pointer; }
+.optionalPlaceholder:hover, .optionalPlaceholder:focus { text-decoration: underline; }
+.xsn-view .optionalPlaceholder::before { content: ""; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; margin: 0 8px 0 -16px; border: 2px solid #f39a1e; border-radius: 50%; }
+.page:not(.original) .optionalPlaceholder { display: inline-block; margin: 4px 0; padding: 2px 8px; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }

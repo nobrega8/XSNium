@@ -130,3 +130,74 @@ describe("real-world rendering", { skip: fixtures.length === 0 && "no local fixt
     });
   }
 });
+
+describe("conditional content and placeholders", () => {
+  const cond = (id: string, path: string, negate: boolean, children: ControlDefinition[]) =>
+    c(id, "conditional", { properties: { path, negate }, children });
+
+  it("inlines content while its node exists and drops it otherwise", () => {
+    const { inst } = setup();
+    const v = view([
+      cond("when", `${ROOT}/my:late`, false, [c("a", "label", { label: "late is set" })]),
+      cond("else", `${ROOT}/my:late`, true, [c("b", "label", { label: "late is missing" })]),
+    ]);
+    assert.deepEqual(expandView(v, inst).nodes.map((n) => n.label), ["late is missing"]);
+    inst.setValue(`${ROOT}/my:late`, "x");
+    assert.deepEqual(expandView(v, inst).nodes.map((n) => n.label), ["late is set"]);
+  });
+
+  it("never leaves a conditional wrapper in the rendered tree", () => {
+    const { inst } = setup();
+    const v = view([cond("when", `${ROOT}/my:title`, false, [c("t", "text", { binding: `${ROOT}/my:title` })])]);
+    const nodes = expandView(v, inst).nodes;
+    assert.deepEqual(nodes.map((n) => n.type), ["text"]);
+    assert.ok(!flat(nodes).some((n) => (n.type as string) === "conditional"));
+  });
+
+  it("tests the node inside the current row", () => {
+    const { form } = setup();
+    const xml = `<my:root xmlns:my="${MY}"><my:title>t</my:title><my:items id="a"><my:name>1</my:name><my:qty>5</my:qty></my:items><my:items id="b"><my:name>2</my:name></my:items><my:limited>x</my:limited></my:root>`;
+    const inst = loadInstance(xml, form);
+    const rs = c("rs", "repeatingSection", {
+      binding: `${ROOT}/my:items`,
+      children: [cond("q", `${ROOT}/my:items/my:qty`, false, [c("qty", "text", { binding: `${ROOT}/my:items/my:qty` })])],
+    });
+    const rows = expandView(view([rs]), inst).nodes[0]!.rows!;
+    assert.deepEqual(rows.map((r) => r.children.length), [1, 0]);
+  });
+
+  it("treats a test it cannot address as not existing", () => {
+    const { inst } = setup();
+    const v = view([cond("bad", `${ROOT}/my:a[@x='1']`, false, [c("a", "label", { label: "hidden" })])]);
+    assert.deepEqual(expandView(v, inst).nodes, []);
+  });
+
+  it("gives a placeholder the limits of the node it inserts", () => {
+    const { inst } = setup();
+    const v = view([c("ph", "placeholder", { label: "Add late", properties: { insertPath: `${ROOT}/my:late` } })]);
+    const before = expandView(v, inst).nodes[0]!;
+    assert.deepEqual([before.label, before.path, before.repeat], ["Add late", `${ROOT}/my:late`, { path: `${ROOT}/my:late`, count: 0, canAdd: true, canRemove: false }]);
+    inst.addRow(`${ROOT}/my:late`);
+    assert.deepEqual(expandView(v, inst).nodes[0]?.repeat, { path: `${ROOT}/my:late`, count: 1, canAdd: false, canRemove: true });
+  });
+
+  it("cannot add through a placeholder that names no node", () => {
+    const { inst } = setup();
+    const v = view([c("ph", "placeholder", { label: "Nowhere" }), c("ph2", "placeholder", { properties: { insertPath: `${ROOT}/my:nothing` } })]);
+    assert.deepEqual(expandView(v, inst).nodes.map((n) => n.repeat?.canAdd), [false, false]);
+  });
+
+  it("keeps the view's stylesheet and width with the rendered view", () => {
+    const { inst } = setup();
+    const v = { ...view([]), css: ".xsn-view td { color: red }", width: "750px" };
+    const r = expandView(v, inst);
+    assert.deepEqual([r.css, r.width], [".xsn-view td { color: red }", "750px"]);
+  });
+
+  it("passes the look of controls through", () => {
+    const { inst } = setup();
+    const look = { className: "xdTextBox", style: { width: "100%" } };
+    const r = expandView(view([c("t", "text", { binding: `${ROOT}/my:title`, presentation: look })]), inst);
+    assert.deepEqual(r.nodes[0]?.presentation, look);
+  });
+});

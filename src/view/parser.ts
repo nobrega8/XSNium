@@ -1,6 +1,8 @@
-import type { ControlDefinition, ControlType } from "../form/model.ts";
+import type { ControlDefinition, ControlType, Presentation } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { parseXml, type XmlElement } from "../xml/safe-xml.ts";
+import { attrOf, columnWidths, hasLook, presentationOf, SEMANTIC_TAGS } from "./presentation.ts";
+import { sanitizeStylesheet } from "./style.ts";
 
 /**
  * Converts an InfoPath view (XSL producing XHTML) into ControlDefinitions.
@@ -24,6 +26,15 @@ const NUMERIC_TYPES = new Set([
   "unsignedInt", "unsignedLong", "unsignedShort", "unsignedByte",
 ]);
 const DATE_TYPES = new Set(["date", "dateTime"]);
+const SECTION_TYPES = new Set<ControlType>(["section", "repeatingSection", "choiceGroup"]);
+const BOX_TAGS = new Set(["div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "i", "em", "u", "sup", "sub", "ul", "ol", "li"]);
+
+/** The element a box is drawn as: known tags keep their name, everything else is a div or a span. */
+function boxTagFor(tag: string): string {
+  if (BOX_TAGS.has(tag)) return tag;
+  if (tag === "font") return "span";
+  return BLOCK_TAGS.has(tag) ? "div" : "span";
+}
 const PATH = /^\/?(?:\.\.?|@?[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?)(?:\/(?:\.\.?|@?[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?))*$/;
 
 export interface ViewParseOptions {
@@ -35,6 +46,8 @@ export interface ViewParseOptions {
 
 export interface ViewParseResult {
   controls: ControlDefinition[];
+  /** The view's stylesheets, sanitised and scoped under .xsn-view. */
+  css: string;
   /** Names (xd:xmlToEdit) of the nodes this view treats as optional: shown as "click to add" until inserted. */
   optionalNames: string[];
   diagnostics: { level: "info" | "warning"; message: string }[];
@@ -62,6 +75,11 @@ export function joinPath(context: string, rel: string): string | undefined {
     } else parts.push(step);
   }
   return "/" + parts.join("/");
+}
+
+/** A test that only asks whether a data node exists (a plain path) gives that node's absolute path. */
+function existenceTest(test: string | undefined, ctx: string): string | undefined {
+  return test === undefined ? undefined : joinPath(ctx, test);
 }
 
 function findBinding(el: XmlElement): { el: XmlElement; binding: string } | undefined {
@@ -129,9 +147,41 @@ class ViewBuilder {
   }
 
   private flush(out: ControlDefinition[], frame: Frame): void {
-    const text = normalise(frame.text);
+    const collapsed = frame.text.replace(/[\s ]+/g, " ");
+    const text = collapsed.trim();
     frame.text = "";
-    if (text) out.push(this.make("label", { label: text }));
+    if (!text) return;
+    // A space at either edge matters next to inline content (a label followed by a field), so keep a note of it.
+    const properties: Record<string, unknown> = {};
+    if (collapsed.startsWith(" ")) properties["spaceBefore"] = true;
+    if (collapsed.endsWith(" ")) properties["spaceAfter"] = true;
+    out.push(this.make("label", { label: text, properties }));
+  }
+
+  /** Content that exists only while the node at `path` does (or, negated, only while it does not). */
+  private conditional(path: string, negate: boolean, content: (XmlElement | string)[], ctx: string, depth: number): ControlDefinition {
+    const children: ControlDefinition[] = [];
+    const frame = new Frame();
+    this.walk(content, ctx, children, frame, depth);
+    this.flush(children, frame);
+    return this.make("conditional", { properties: { path, negate }, children });
+  }
+
+  /** Attach the look of the source element to a control, unless it already has one. */
+  private styled(controls: ControlDefinition[] | undefined, el: XmlElement, tag: string): ControlDefinition[] | undefined {
+    const first = controls?.[0];
+    if (first && controls?.length === 1 && first.presentation === undefined) {
+      const presentation = presentationOf(el, { tag, cellLike: false });
+      // A section's height is a design-time artefact: at run time InfoPath sizes it to its content, so keeping it
+      // would leave a large empty frame around an optional section that has not been inserted.
+      if (presentation?.style && SECTION_TYPES.has(first.type)) {
+        delete presentation.style["height"];
+        delete presentation.style["min-height"];
+        if (Object.keys(presentation.style).length === 0) delete presentation.style;
+      }
+      if (presentation && (hasLook(presentation) || presentation.tag)) first.presentation = presentation;
+    }
+    return controls;
   }
 
   // --- generic walk -------------------------------------------------------------------------
@@ -168,12 +218,37 @@ class ViewBuilder {
         out.push(this.make("repeatingSection", { binding: path, children }));
         return;
       }
-      case "if":
-      case "when":
-        this.conditionals++;
-        this.walk(el.content, ctx, out, frame, depth);
+      case "if": {
+        this.flush(out, frame);
+        const path = existenceTest(el.attrs["test"], ctx);
+        if (path === undefined) {
+          this.conditionals++;
+          this.walk(el.content, ctx, out, frame, depth);
+        } else out.push(this.conditional(path, false, el.content, ctx, depth));
         return;
-      case "choose":
+      }
+      case "choose": {
+        this.flush(out, frame);
+        const branches = el.children.filter((c) => isXsl(c, "when") || isXsl(c, "otherwise"));
+        const first = branches[0];
+        const path = first && isXsl(first, "when") ? existenceTest(first.attrs["test"], ctx) : undefined;
+        if (path === undefined) {
+          // A test this reader cannot evaluate: show everything, as before.
+          this.conditionals += branches.filter((b) => isXsl(b, "when")).length;
+          this.walk(el.content, ctx, out, frame, depth);
+          return;
+        }
+        for (const branch of branches) {
+          if (branch === first) out.push(this.conditional(path, false, branch.content, ctx, depth));
+          else if (isXsl(branch, "otherwise")) out.push(this.conditional(path, true, branch.content, ctx, depth));
+          else {
+            this.conditionals++;
+            this.walk(branch.content, ctx, out, frame, depth);
+          }
+        }
+        return;
+      }
+      case "when":
       case "otherwise":
         this.walk(el.content, ctx, out, frame, depth);
         return;
@@ -239,12 +314,15 @@ class ViewBuilder {
     const tag = el.local.toLowerCase();
     if (SKIPPED_TAGS.has(tag)) return;
     if (/optionalPlaceholder/i.test(el.attrs["class"] ?? "")) {
-      // The "click to add" area of an optional section: its text names what would be inserted.
-      const optionalName = xdAttr(el, "xmlToEdit");
-      if (optionalName) this.optionalNames.add(optionalName);
-      const text = textOf(el);
-      const previous = out[out.length - 1];
-      if (text && previous && (previous.type === "repeatingSection" || previous.type === "section")) previous.properties["addLabel"] ??= text;
+      // The "click to add" area of an optional section or repeating item. Its text names what would be inserted.
+      this.flush(out, frame);
+      const xmlToEdit = xdAttr(el, "xmlToEdit");
+      if (xmlToEdit) this.optionalNames.add(xmlToEdit);
+      const properties: Record<string, unknown> = {};
+      if (xmlToEdit) properties["xmlToEdit"] = xmlToEdit;
+      const label = textOf(el);
+      const presentation = presentationOf(el, { tag: "div", blockLike: true });
+      out.push(this.make("placeholder", { properties, ...(label ? { label } : {}), ...(presentation ? { presentation } : {}) }));
       return;
     }
 
@@ -252,14 +330,17 @@ class ViewBuilder {
       this.flush(out, frame);
       const rows: ControlDefinition[] = [];
       this.tableRows(el, ctx, rows, depth);
-      out.push(this.make("layoutTable", { children: rows }));
+      const presentation: Presentation = presentationOf(el) ?? {};
+      const widths = columnWidths(el);
+      if (widths) presentation.colWidths = widths;
+      out.push(this.make("layoutTable", { children: rows, ...(Object.keys(presentation).length > 0 ? { presentation } : {}) }));
       return;
     }
 
     const xct = xdAttr(el, "xctname")?.toLowerCase();
     if (xct !== undefined) {
       this.flush(out, frame);
-      const control = this.control(el, xct, tag, ctx, depth);
+      const control = this.styled(this.control(el, xct, tag, ctx, depth), el, tag);
       if (control) out.push(...control);
       return;
     }
@@ -267,7 +348,27 @@ class ViewBuilder {
     if (tag === "img") {
       this.flush(out, frame);
       const src = el.attrs["src"] ?? "";
-      if (src && !/^(res|https?|file|data):/i.test(src)) out.push(this.make("image", { properties: { source: src } }));
+      if (src && !/^(res|https?|file|data):/i.test(src)) {
+        const presentation = presentationOf(el);
+        out.push(this.make("image", { properties: { source: src }, ...(presentation ? { presentation } : {}) }));
+      }
+      return;
+    }
+
+    // Elements that carry a look (class, style, alignment, font) or a meaning (headings, emphasis) are kept as
+    // boxes so their appearance survives; plain wrappers are transparent, as before.
+    const presentation = presentationOf(el, { font: tag === "font", blockLike: BLOCK_TAGS.has(tag) });
+    if (SEMANTIC_TAGS.has(tag) || hasLook(presentation)) {
+      this.flush(out, frame);
+      const children: ControlDefinition[] = [];
+      const inner = new Frame();
+      this.walk(el.content, ctx, children, inner, depth);
+      this.flush(children, inner);
+      const boxTag = boxTagFor(tag);
+      const box: Presentation = { ...(presentation ?? {}), tag: boxTag };
+      if (tag === "center" && box.align === undefined) box.align = "center";
+      // A styled element with nothing in it can still be a spacer, so it stays when it has a style of its own.
+      if (children.length > 0 || box.style !== undefined) out.push(this.make("box", { presentation: box, children }));
       return;
     }
 
@@ -317,15 +418,17 @@ class ViewBuilder {
         this.walk(child.content, ctx, inner, frame, depth);
         this.flush(inner, frame);
         const properties: Record<string, unknown> = {};
-        const colSpan = Number(child.attrs["colSpan"] ?? child.attrs["colspan"] ?? 1);
-        const rowSpan = Number(child.attrs["rowSpan"] ?? child.attrs["rowspan"] ?? 1);
+        const colSpan = Number(attrOf(child, "colSpan") ?? 1);
+        const rowSpan = Number(attrOf(child, "rowSpan") ?? 1);
         if (colSpan > 1) properties["colSpan"] = colSpan;
         if (rowSpan > 1) properties["rowSpan"] = rowSpan;
-        cells.push(this.make("layoutCell", { properties, children: inner }));
+        const presentation = presentationOf(child, { cellLike: true });
+        cells.push(this.make("layoutCell", { properties, children: inner, ...(presentation ? { presentation } : {}) }));
       }
     };
     collect(tr);
-    return this.make("layoutRow", { children: cells });
+    const rowLook = presentationOf(tr, { cellLike: true });
+    return this.make("layoutRow", { children: cells, ...(rowLook ? { presentation: rowLook } : {}) });
   }
 
   // --- controls -----------------------------------------------------------------------------
@@ -487,5 +590,18 @@ export function parseView(xsl: Buffer | string, options: ViewParseOptions): View
   }
   const builder = new ViewBuilder(stylesheet, options);
   const controls = builder.build(stylesheet);
-  return { controls, optionalNames: [...builder.optionalNames], diagnostics: builder.diagnostics };
+
+  // The view's own stylesheets carry most of its look. They are kept, sanitised and scoped.
+  const blocks: string[] = [];
+  const collect = (el: XmlElement) => {
+    if (el.local.toLowerCase() === "style" && el.ns !== XSL) blocks.push(el.text);
+    for (const child of el.children) collect(child);
+  };
+  collect(stylesheet);
+  const sheets = blocks.map((b) => sanitizeStylesheet(b));
+  const dropped = sheets.reduce((n, sh) => n + sh.dropped, 0);
+  const diagnostics = [...builder.diagnostics];
+  if (dropped > 0) diagnostics.push({ level: "info", message: `${dropped} style rule(s) or declaration(s) were ignored (unsupported or unsafe)` });
+
+  return { controls, css: sheets.map((sh) => sh.css).filter(Boolean).join("\n"), optionalNames: [...builder.optionalNames], diagnostics };
 }
