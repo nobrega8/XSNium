@@ -244,3 +244,21 @@ describe("conditional content and placeholders", () => {
     assert.deepEqual(r.nodes[0]?.presentation, look);
   });
 });
+
+describe("formula boxes", () => {
+  it("shows the result of an expression that is not a plain path, and follows the data", () => {
+    const { inst } = setup();
+    const box = c("f", "label", { properties: { expression: "concat(my:title, '!')", context: ROOT } });
+    const show = () => expandView(view([box]), inst);
+    assert.equal(show().nodes[0]?.value, "Hello!");
+    assert.equal(show().dynamic, true);
+    inst.setValue(`${ROOT}/my:title`, "Bye");
+    assert.equal(show().nodes[0]?.value, "Bye!");
+  });
+
+  it("shows nothing, rather than failing, when the expression cannot be evaluated", () => {
+    const { inst } = setup();
+    const box = c("f", "label", { properties: { expression: "not(", context: ROOT } });
+    assert.equal(expandView(view([box]), inst).nodes[0]?.value, "");
+  });
+});

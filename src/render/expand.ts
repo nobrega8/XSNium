@@ -3,7 +3,7 @@ import type { FormInstance } from "../data/instance.ts";
 import type { ControlDefinition, ControlType, Presentation, ViewDefinition } from "../form/model.ts";
 import { XsnError } from "../package/errors.ts";
 import { evaluateXPath } from "../xpath/evaluator.ts";
-import { elementNode, toBoolean } from "../xpath/nodes.ts";
+import { elementNode, toBoolean, toStringValue } from "../xpath/nodes.ts";
 
 /**
  * The rendering engine: turns a view (controls with abstract bindings) plus the current data into a
@@ -173,8 +173,24 @@ class Expander {
         out.value = "";
       }
     }
+    // A formula box or value-of that is not a plain path shows the result of its expression.
+    if (c.type === "label" && c.binding === undefined && c.label === undefined && typeof c.properties["expression"] === "string") {
+      out.value = this.evaluated(c.properties["expression"], typeof c.properties["context"] === "string" ? this.concretize(c.properties["context"]) : "/");
+    }
     if (c.children) out.children = this.nodes(c.children, suffix);
     return out;
+  }
+
+  /** The text an expression gives in a context; empty when it cannot be evaluated. Changes with any edit, so the view is dynamic. */
+  private evaluated(expression: string, context: string): string {
+    this.dynamic = true;
+    try {
+      const at = this.instance.select(context)[0];
+      if (!at || at.kind !== "element") return "";
+      return toStringValue(evaluateXPath(expression, elementNode(at.el), { doc: this.instance.document, resolvePrefix: this.instance.namespaceResolver }));
+    } catch {
+      return "";
+    }
   }
 
   /** A "click to add" area: it can insert the node its view names, as far as the schema allows. */

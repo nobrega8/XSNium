@@ -326,7 +326,7 @@ class ViewBuilder {
         this.flush(out, frame);
         const select = el.attrs["select"] ?? "";
         const binding = joinPath(ctx, select);
-        out.push(this.make("label", { ...(binding ? { binding } : {}), properties: { expression: select } }));
+        out.push(this.make("label", { ...(binding ? { binding } : {}), properties: { expression: select, context: ctx } }));
         return;
       }
       case "text":
@@ -584,7 +584,7 @@ class ViewBuilder {
       case "expressionbox": {
         const b = this.bound(el, ctx);
         const expression = b.expression ?? xdAttr(el, "binding") ?? "";
-        return [this.make("label", { ...(b.binding ? { binding: b.binding } : {}), properties: { expression } }, id)];
+        return [this.make("label", { ...(b.binding ? { binding: b.binding } : {}), properties: { expression, context: ctx } }, id)];
       }
       case "dropdown":
       case "combobox":
