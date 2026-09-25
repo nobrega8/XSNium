@@ -12,3 +12,8 @@ export { readSchema } from "./schema/read.ts";
 export type * from "./schema/model.ts";
 export { buildFormDefinition, mimeTypeOf } from "./form/build.ts";
 export type * from "./form/model.ts";
+export { FormInstance, createInstance, loadInstance } from "./data/instance.ts";
+export { parseDataDocument, serializeDataDocument } from "./data/document.ts";
+export type { DataDocument, DataElement, DataAttribute } from "./data/document.ts";
+export { parsePath } from "./data/path.ts";
+export type { DataNode, ParsedPath, PathStep } from "./data/path.ts";

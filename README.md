@@ -4,7 +4,7 @@ XSNium opens, inspects and (soon) renders and edits legacy Microsoft InfoPath `.
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The goal is **compatibility and migration**, not a pixel-perfect clone of InfoPath.
 
-> **Status: early development.** Package reading, manifest parsing, schema parsing and the internal form model work. Rendering, data binding and editing are not implemented yet. See [Roadmap](#roadmap).
+> **Status: early development.** Package reading, manifest and schema parsing, the internal form model and the XML data model (reading, writing and repeating rows by path) work. Rendering and the editor UI are not implemented yet. See [Roadmap](#roadmap).
 
 > XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
 
@@ -18,6 +18,7 @@ An `.xsn` is a template, not a program. XSNium treats it as untrusted input and 
    -> manifest parser     views, schemas, data connections, features
    -> schema parser       elements, types, repetition, constraints
    -> form definition     the application's own representation
+   -> data instance       XML data, edited by path (values, repeating rows)
    -> renderer / editor   (planned)
    -> XML instance        the data the user fills in
 ```
@@ -65,14 +66,22 @@ Example `inspect` output:
 ### As a library
 
 ```ts
-import { openXsn, buildFormDefinition } from "./src/index.ts";
+import { openXsn, buildFormDefinition, createInstance } from "./src/index.ts";
 
 const pkg = openXsn("form.xsn");
 const form = buildFormDefinition(pkg);
 
 console.log(form.name, form.views.map((v) => v.name));
 console.log(form.validations.length, "validations derived from the schema");
+
+// Fill in the form: start from the template's data, edit by path, save XML.
+const instance = createInstance(pkg, form);
+instance.setValue("/my:root/my:title", "Hello");
+instance.addRow("/my:root/my:items");
+const xml = instance.toXml(); // the original .xsn is never touched
 ```
+
+Paths use a small, safe XPath subset (child and attribute steps, `..`, `[n]`, `[last()]`). Anything else is rejected rather than guessed.
 
 ## Project layout
 
@@ -83,6 +92,7 @@ src/
   manifest/   manifest.xsf -> ManifestModel, feature detection
   schema/     XSD -> SchemaModel
   form/       FormDefinition: the internal model the rest of the app uses
+  data/       XML data documents, path subset, FormInstance (edit, rows, save)
   cli/        xsnium command
 tests/        unit, security and real-world fixture tests
 plan.md       full design and phased plan
@@ -121,8 +131,8 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 2 | Manifest parser | Done |
 | 3 | XSD schema parser | Done |
 | 4 | Internal form model | Done |
-| 5 | XML data model and XPath binding | Next |
-| 6-9 | Controls, rendering, bindings, repeating structures | Planned |
+| 5 | XML data model and path binding | Done (path subset; full expressions come with Phase 12) |
+| 6-9 | Controls, rendering, UI bindings | Next |
 | 10-12 | Validation, views, rules | Planned |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |

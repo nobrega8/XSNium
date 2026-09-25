@@ -57,6 +57,8 @@ export interface DataSourceDefinition {
   /** Main data source: XPath of the root, e.g. /my:root. */
   rootPath?: string;
   schema?: SchemaNode;
+  /** Package file holding the template's initial data document, if it declares one. */
+  initialDataFile?: string;
   /** Connection data sources are detected but never executed. */
   connection?: { type: string; name: string; status: "unsupported" };
 }

@@ -154,7 +154,15 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
   const { rootPath, validations } = deriveValidations(schema, prefixes);
 
   const name = manifest.caption ?? manifest.formName ?? "Untitled form";
-  const dataSources: FormDefinition["dataSources"] = [{ id: "main", kind: "main", rootPath, schema: schema.root }];
+  const dataSources: FormDefinition["dataSources"] = [
+    {
+      id: "main",
+      kind: "main",
+      rootPath,
+      schema: schema.root,
+      ...(manifest.initialDocument !== undefined ? { initialDataFile: manifest.initialDocument } : {}),
+    },
+  ];
   manifest.dataAdapters.forEach((a, i) =>
     dataSources.push({ id: `connection-${i + 1}`, kind: "connection", connection: { type: a.kind, name: a.name, status: "unsupported" } }),
   );

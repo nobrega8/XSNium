@@ -6,7 +6,10 @@ export type XsnErrorCode =
   | "UNSUPPORTED_MULTI_CABINET"
   | "LIMIT_EXCEEDED"
   | "UNSAFE_PATH"
-  | "ENTRY_NOT_FOUND";
+  | "ENTRY_NOT_FOUND"
+  | "NODE_NOT_FOUND"
+  | "UNSUPPORTED_EXPRESSION"
+  | "INVALID_OPERATION";
 
 export class XsnError extends Error {
   readonly code: XsnErrorCode;
