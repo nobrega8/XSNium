@@ -50,6 +50,10 @@ npm run xsnium -- serve path/to/form.xsn --open
 
 This starts a local web UI on `127.0.0.1` (only this computer can reach it). You can open a template, fill it in, add and remove repeating rows, switch views, load existing data, save the result as XML, and see a compatibility panel listing what the template uses that is not supported yet. Omit the path to open a form from the page instead.
 
+### A single-file program
+
+`npm run build:exe` produces `dist/xsnium` (`dist/xsnium.exe` on Windows): one file that needs no Node.js installed. It is a Node single executable application, so it is built per platform, on that platform. Opening it without arguments starts the app and shows it in your browser; it accepts the same commands as the CLI. The result is not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn about it until signing is set up.
+
 ### CLI
 
 ```bash
