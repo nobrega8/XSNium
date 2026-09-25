@@ -1,0 +1,441 @@
+import type { ControlDefinition, ControlType } from "../form/model.ts";
+import { XsnError } from "../package/errors.ts";
+import { parseXml, type XmlElement } from "../xml/safe-xml.ts";
+
+/**
+ * Converts an InfoPath view (XSL producing XHTML) into ControlDefinitions.
+ *
+ * The stylesheet is never executed. It is read as a tree: static HTML gives labels and layout,
+ * elements marked with xd:xctname give controls, and xsl:apply-templates / xsl:for-each are followed
+ * only to learn which data node each part of the view is bound to.
+ */
+
+const XSL = "http://www.w3.org/1999/XSL/Transform";
+const XD = "http://schemas.microsoft.com/office/infopath/2003";
+
+const MAX_CONTROLS = 200_000;
+const MAX_TEMPLATE_DEPTH = 64;
+
+const SKIPPED_TAGS = new Set(["head", "style", "script", "meta", "link", "object", "title", "colgroup", "col", "noscript"]);
+const BLOCK_TAGS = new Set(["div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "td", "th", "tr", "body", "html", "form", "center", "hr", "br", "section", "article"]);
+const NUMERIC_TYPES = new Set([
+  "integer", "int", "long", "short", "byte", "decimal", "double", "float",
+  "nonNegativeInteger", "positiveInteger", "negativeInteger", "nonPositiveInteger",
+  "unsignedInt", "unsignedLong", "unsignedShort", "unsignedByte",
+]);
+const DATE_TYPES = new Set(["date", "dateTime"]);
+const PATH = /^\/?(?:\.\.?|@?[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?)(?:\/(?:\.\.?|@?[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?))*$/;
+
+export interface ViewParseOptions {
+  /** Absolute path of the data root, e.g. /my:root. */
+  rootPath: string;
+  /** Built-in XSD type of the node at an absolute path, used to pick number/date inputs. */
+  typeOfPath?: (absolutePath: string) => string | undefined;
+}
+
+export interface ViewParseResult {
+  controls: ControlDefinition[];
+  diagnostics: { level: "info" | "warning"; message: string }[];
+}
+
+const xdAttr = (el: XmlElement, name: string): string | undefined => el.attributes.find((a) => a.ns === XD && a.local === name)?.value;
+const isXsl = (el: XmlElement, local?: string) => el.ns === XSL && (local === undefined || el.local === local);
+const normalise = (s: string) => s.replace(/[\s ]+/g, " ").trim();
+
+function textOf(el: XmlElement): string {
+  return normalise(el.content.map((c) => (typeof c === "string" ? c : isXsl(c) ? "" : textOf(c))).join(" "));
+}
+
+/** Resolve a relative path against an absolute context path; undefined when it is not a plain path. */
+export function joinPath(context: string, rel: string): string | undefined {
+  const trimmed = rel.trim();
+  if (!PATH.test(trimmed)) return undefined;
+  if (trimmed.startsWith("/")) return trimmed;
+  const parts = context.split("/").filter(Boolean);
+  for (const step of trimmed.split("/")) {
+    if (step === ".") continue;
+    if (step === "..") {
+      if (parts.length === 0) return undefined;
+      parts.pop();
+    } else parts.push(step);
+  }
+  return "/" + parts.join("/");
+}
+
+function findBinding(el: XmlElement): { el: XmlElement; binding: string } | undefined {
+  const own = xdAttr(el, "binding");
+  if (own !== undefined) return { el, binding: own };
+  for (const c of el.children) {
+    const found = findBinding(c);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+class Frame {
+  text = "";
+}
+
+class ViewBuilder {
+  private readonly templates = new Map<string, XmlElement[]>();
+  private readonly options: ViewParseOptions;
+  private readonly stack = new Set<string>();
+  private readonly unknownControls = new Map<string, number>();
+  private controlCount = 0;
+  private idCounter = 0;
+  private conditionals = 0;
+  readonly diagnostics: ViewParseResult["diagnostics"] = [];
+
+  constructor(stylesheet: XmlElement, options: ViewParseOptions) {
+    this.options = options;
+    for (const t of stylesheet.children) {
+      if (isXsl(t, "template") && t.attrs["match"] !== undefined) {
+        const key = `${t.attrs["mode"] ?? ""}\u0000${t.attrs["match"].trim()}`;
+        this.templates.set(key, [...(this.templates.get(key) ?? []), t]);
+      }
+    }
+  }
+
+  build(stylesheet: XmlElement): ControlDefinition[] {
+    const rootName = this.options.rootPath.split("/").filter(Boolean).pop() ?? "";
+    const rootTemplate =
+      this.templates.get(`\u0000${rootName}`)?.[0] ??
+      stylesheet.children.find((t) => isXsl(t, "template") && t.attrs["mode"] === undefined);
+    if (!rootTemplate) {
+      this.diagnostics.push({ level: "warning", message: "View has no template for the form's root element" });
+      return [];
+    }
+    const out: ControlDefinition[] = [];
+    this.walk(rootTemplate.content, this.options.rootPath, out, new Frame());
+    this.flush(out, new Frame());
+
+    if (this.conditionals > 0) {
+      this.diagnostics.push({ level: "info", message: `${this.conditionals} conditional block(s) are shown unconditionally` });
+    }
+    for (const [name, count] of this.unknownControls) {
+      this.diagnostics.push({ level: "warning", message: `Unsupported control "${name}" (${count}) is kept as an unknown control` });
+    }
+    return out;
+  }
+
+  // --- helpers ------------------------------------------------------------------------------
+
+  private make(type: ControlType, init: Partial<ControlDefinition> = {}, id?: string): ControlDefinition {
+    if (++this.controlCount > MAX_CONTROLS) throw new XsnError("LIMIT_EXCEEDED", `View produces more than ${MAX_CONTROLS} controls`);
+    return { id: id ?? `${type.startsWith("layout") ? "layout" : "ctrl"}-${++this.idCounter}`, type, properties: {}, ...init };
+  }
+
+  private flush(out: ControlDefinition[], frame: Frame): void {
+    const text = normalise(frame.text);
+    frame.text = "";
+    if (text) out.push(this.make("label", { label: text }));
+  }
+
+  // --- generic walk -------------------------------------------------------------------------
+
+  private walk(nodes: (XmlElement | string)[], ctx: string, out: ControlDefinition[], frame: Frame, depth = 0): void {
+    for (const node of nodes) {
+      if (typeof node === "string") {
+        frame.text += node;
+        continue;
+      }
+      if (isXsl(node)) this.walkXsl(node, ctx, out, frame, depth);
+      else this.walkHtml(node, ctx, out, frame, depth);
+    }
+  }
+
+  private walkXsl(el: XmlElement, ctx: string, out: ControlDefinition[], frame: Frame, depth: number): void {
+    switch (el.local) {
+      case "apply-templates":
+        this.flush(out, frame);
+        this.applyTemplates(el, ctx, out, depth);
+        return;
+      case "for-each": {
+        this.flush(out, frame);
+        const path = joinPath(ctx, el.attrs["select"] ?? "");
+        if (path === undefined) {
+          this.diagnostics.push({ level: "warning", message: `Unsupported for-each selection "${el.attrs["select"] ?? ""}"` });
+          this.walk(el.content, ctx, out, frame, depth);
+          return;
+        }
+        const children: ControlDefinition[] = [];
+        const inner = new Frame();
+        this.walk(el.content, path, children, inner, depth);
+        this.flush(children, inner);
+        out.push(this.make("repeatingSection", { binding: path, children }));
+        return;
+      }
+      case "if":
+      case "when":
+        this.conditionals++;
+        this.walk(el.content, ctx, out, frame, depth);
+        return;
+      case "choose":
+      case "otherwise":
+        this.walk(el.content, ctx, out, frame, depth);
+        return;
+      case "value-of": {
+        this.flush(out, frame);
+        const select = el.attrs["select"] ?? "";
+        const binding = joinPath(ctx, select);
+        out.push(this.make("label", { ...(binding ? { binding } : {}), properties: { expression: select } }));
+        return;
+      }
+      case "text":
+        frame.text += el.content.filter((c) => typeof c === "string").join("");
+        return;
+      case "attribute":
+      case "copy-of":
+      case "comment":
+      case "param":
+      case "variable":
+      case "sort":
+      case "output":
+      case "key":
+        return;
+      default:
+        this.walk(el.content, ctx, out, frame, depth);
+    }
+  }
+
+  private applyTemplates(el: XmlElement, ctx: string, out: ControlDefinition[], depth: number): void {
+    const select = el.attrs["select"];
+    if (select === undefined) {
+      this.diagnostics.push({ level: "warning", message: "apply-templates without a selection is not supported" });
+      return;
+    }
+    const target = joinPath(ctx, select);
+    if (target === undefined) {
+      this.diagnostics.push({ level: "warning", message: `Unsupported apply-templates selection "${select}"` });
+      return;
+    }
+    const last = select.trim().split("/").pop() ?? "";
+    const templates = this.templates.get(`${el.attrs["mode"] ?? ""}\u0000${last}`);
+    if (!templates) {
+      this.diagnostics.push({ level: "warning", message: `No template for "${select}"` });
+      return;
+    }
+    if (depth >= MAX_TEMPLATE_DEPTH) {
+      this.diagnostics.push({ level: "warning", message: "Templates nest too deeply; the remainder is skipped" });
+      return;
+    }
+    for (const template of templates) {
+      const key = `${template.attrs["mode"] ?? ""}|${template.attrs["match"] ?? ""}@${target}`;
+      if (this.stack.has(key)) continue; // recursive view: stop instead of looping
+      this.stack.add(key);
+      const frame = new Frame();
+      this.walk(template.content, target, out, frame, depth + 1);
+      this.flush(out, frame);
+      this.stack.delete(key);
+    }
+  }
+
+  // --- HTML ---------------------------------------------------------------------------------
+
+  private walkHtml(el: XmlElement, ctx: string, out: ControlDefinition[], frame: Frame, depth: number): void {
+    const tag = el.local.toLowerCase();
+    if (SKIPPED_TAGS.has(tag) || /optionalPlaceholder/i.test(el.attrs["class"] ?? "")) return;
+
+    if (tag === "table") {
+      this.flush(out, frame);
+      const rows: ControlDefinition[] = [];
+      this.tableRows(el, ctx, rows, depth);
+      out.push(this.make("layoutTable", { children: rows }));
+      return;
+    }
+
+    const xct = xdAttr(el, "xctname")?.toLowerCase();
+    if (xct !== undefined) {
+      this.flush(out, frame);
+      const control = this.control(el, xct, tag, ctx, depth);
+      if (control) out.push(...control);
+      return;
+    }
+
+    if (tag === "img") {
+      this.flush(out, frame);
+      const src = el.attrs["src"] ?? "";
+      if (src && !/^(res|https?|file|data):/i.test(src)) out.push(this.make("image", { properties: { source: src } }));
+      return;
+    }
+
+    const block = BLOCK_TAGS.has(tag);
+    if (block) this.flush(out, frame);
+    this.walk(el.content, ctx, out, frame, depth);
+    if (block) this.flush(out, frame);
+  }
+
+  // --- tables -------------------------------------------------------------------------------
+
+  private tableRows(el: XmlElement, ctx: string, rows: ControlDefinition[], depth: number): void {
+    for (const child of el.children) {
+      if (isXsl(child, "for-each")) {
+        const path = joinPath(ctx, child.attrs["select"] ?? "");
+        if (path === undefined) {
+          this.diagnostics.push({ level: "warning", message: `Unsupported for-each selection "${child.attrs["select"] ?? ""}"` });
+          this.tableRows(child, ctx, rows, depth);
+          continue;
+        }
+        const body: ControlDefinition[] = [];
+        this.tableRows(child, path, body, depth);
+        rows.push(this.make("repeatingTable", { binding: path, children: body }));
+      } else if (isXsl(child)) {
+        if (child.local === "if" || child.local === "when") this.conditionals++;
+        if (["if", "choose", "when", "otherwise"].includes(child.local)) this.tableRows(child, ctx, rows, depth);
+      } else {
+        const tag = child.local.toLowerCase();
+        if (tag === "tr") rows.push(this.row(child, ctx, depth));
+        else if (tag === "thead" || tag === "tbody" || tag === "tfoot") this.tableRows(child, ctx, rows, depth);
+      }
+    }
+  }
+
+  private row(tr: XmlElement, ctx: string, depth: number): ControlDefinition {
+    const cells: ControlDefinition[] = [];
+    const collect = (el: XmlElement) => {
+      for (const child of el.children) {
+        if (isXsl(child)) {
+          if (["if", "choose", "when", "otherwise"].includes(child.local)) collect(child);
+          continue;
+        }
+        const tag = child.local.toLowerCase();
+        if (tag !== "td" && tag !== "th") continue;
+        const inner: ControlDefinition[] = [];
+        const frame = new Frame();
+        this.walk(child.content, ctx, inner, frame, depth);
+        this.flush(inner, frame);
+        const properties: Record<string, unknown> = {};
+        const colSpan = Number(child.attrs["colSpan"] ?? child.attrs["colspan"] ?? 1);
+        const rowSpan = Number(child.attrs["rowSpan"] ?? child.attrs["rowspan"] ?? 1);
+        if (colSpan > 1) properties["colSpan"] = colSpan;
+        if (rowSpan > 1) properties["rowSpan"] = rowSpan;
+        cells.push(this.make("layoutCell", { properties, children: inner }));
+      }
+    };
+    collect(tr);
+    return this.make("layoutRow", { children: cells });
+  }
+
+  // --- controls -----------------------------------------------------------------------------
+
+  private bound(el: XmlElement, ctx: string): { binding?: string; expression?: string; source: XmlElement } {
+    const found = findBinding(el);
+    if (!found) return { source: el };
+    const path = joinPath(ctx, found.binding);
+    return path !== undefined
+      ? { binding: path, source: found.el }
+      : { expression: found.binding, source: found.el };
+  }
+
+  private container(el: XmlElement, ctx: string, depth: number): ControlDefinition[] {
+    const children: ControlDefinition[] = [];
+    const frame = new Frame();
+    this.walk(el.content, ctx, children, frame, depth);
+    this.flush(children, frame);
+    return children;
+  }
+
+  private control(el: XmlElement, name: string, tag: string, ctx: string, depth: number): ControlDefinition[] | undefined {
+    const id = xdAttr(el, "CtrlId");
+    const opts = this.options;
+    const typeAt = (path: string | undefined) => (path ? opts.typeOfPath?.(path) : undefined);
+
+    switch (name) {
+      case "section":
+      case "optionalsection":
+        return [this.make("section", { binding: ctx, properties: name === "optionalsection" ? { optional: true } : {}, children: this.container(el, ctx, depth) }, id)];
+      case "repeatingsection":
+      case "repeatingsectionwithcontrols":
+        return [this.make("repeatingSection", { binding: ctx, children: this.container(el, ctx, depth) }, id)];
+      case "repeatingtable": {
+        // A repeating table marked on something other than <table>: keep its rows.
+        const rows: ControlDefinition[] = [];
+        this.tableRows(el, ctx, rows, depth);
+        return rows.length > 0 ? [this.make("layoutTable", { children: rows })] : [];
+      }
+      case "plaintext": {
+        const b = this.bound(el, ctx);
+        const t = typeAt(b.binding);
+        const multiline = tag === "div";
+        const type: ControlType = multiline ? "textArea" : t && NUMERIC_TYPES.has(t) ? "number" : t && DATE_TYPES.has(t) ? "date" : "text";
+        return [this.make(type, { ...(b.binding ? { binding: b.binding } : {}), properties: b.expression ? { expression: b.expression } : {} }, id)];
+      }
+      case "richtext": {
+        const b = this.bound(el, ctx);
+        return [this.make("textArea", { ...(b.binding ? { binding: b.binding } : {}), properties: { rich: true } }, id)];
+      }
+      case "optionbutton": {
+        const b = this.bound(el, ctx);
+        return [this.make("radio", { ...(b.binding ? { binding: b.binding } : {}), properties: { onValue: xdAttr(el, "onValue") ?? "" } }, id)];
+      }
+      case "checkbox": {
+        const b = this.bound(el, ctx);
+        const properties: Record<string, unknown> = { onValue: xdAttr(el, "onValue") ?? "true", offValue: xdAttr(el, "offValue") ?? "false" };
+        return [this.make("checkbox", { ...(b.binding ? { binding: b.binding } : {}), properties }, id)];
+      }
+      case "dtpicker":
+      case "dtpicker_dttext": {
+        const b = this.bound(el, ctx);
+        const format = b.source !== el ? xdAttr(b.source, "datafmt") : xdAttr(el, "datafmt");
+        return [this.make("date", { ...(b.binding ? { binding: b.binding } : {}), properties: format ? { format } : {} }, id)];
+      }
+      case "expressionbox": {
+        const b = this.bound(el, ctx);
+        const expression = b.expression ?? xdAttr(el, "binding") ?? "";
+        return [this.make("label", { ...(b.binding ? { binding: b.binding } : {}), properties: { expression } }, id)];
+      }
+      case "dropdown":
+      case "combobox":
+      case "listbox":
+      case "multipleselectionlistbox": {
+        const b = this.bound(el, ctx);
+        const options = this.optionsOf(el);
+        const type: ControlType = name === "dropdown" || name === "combobox" ? "dropdown" : "list";
+        const properties: Record<string, unknown> = { options };
+        if (name === "combobox") properties["editable"] = true;
+        if (name === "multipleselectionlistbox") properties["multiple"] = true;
+        return [this.make(type, { ...(b.binding ? { binding: b.binding } : {}), properties }, id)];
+      }
+      case "button":
+      case "picturebutton": {
+        const action = xdAttr(el, "action");
+        const caption = el.attrs["value"] ?? textOf(el);
+        return [this.make("button", { label: caption, properties: action ? { action } : {} }, id)];
+      }
+      case "inlineimage":
+      case "linkedimage": {
+        const b = this.bound(el, ctx);
+        return [this.make("image", { ...(b.binding ? { binding: b.binding } : {}) }, id)];
+      }
+      default:
+        if (name.startsWith("dtpicker_")) return undefined; // parts of a date picker
+        this.unknownControls.set(name, (this.unknownControls.get(name) ?? 0) + 1);
+        return [this.make("unknown", { ...(this.bound(el, ctx).binding ? { binding: this.bound(el, ctx).binding! } : {}), properties: { xctname: name } }, id)];
+    }
+  }
+
+  private optionsOf(el: XmlElement): { value: string; label: string }[] {
+    const found: { value: string; label: string }[] = [];
+    const visit = (e: XmlElement) => {
+      for (const c of e.children) {
+        if (!isXsl(c) && c.local.toLowerCase() === "option") {
+          const label = textOf(c);
+          const value = c.attrs["value"] ?? label;
+          if (value !== "" || label !== "") found.push({ value, label });
+        } else visit(c);
+      }
+    };
+    visit(el);
+    return found;
+  }
+}
+
+export function parseView(xsl: Buffer | string, options: ViewParseOptions): ViewParseResult {
+  const stylesheet = parseXml(xsl);
+  if (!isXsl(stylesheet) || (stylesheet.local !== "stylesheet" && stylesheet.local !== "transform")) {
+    throw new XsnError("MALFORMED", "View is not an XSL stylesheet");
+  }
+  const builder = new ViewBuilder(stylesheet, options);
+  const controls = builder.build(stylesheet);
+  return { controls, diagnostics: builder.diagnostics };
+}

@@ -4,6 +4,8 @@ import { readManifest } from "../manifest/read.ts";
 import type { PackageEntry, XsnPackage } from "../package/xsn-package.ts";
 import type { Facets, SchemaModel, SchemaNode } from "../schema/model.ts";
 import { readSchema } from "../schema/read.ts";
+import { parseView } from "../view/parser.ts";
+import { schemaNodeAtPath } from "./schema-path.ts";
 import type {
   FormDefinition,
   NamespaceDefinition,
@@ -130,16 +132,41 @@ function buildRules(manifest: ManifestModel): RuleDefinition[] {
   }));
 }
 
-function buildViews(manifest: ManifestModel): ViewDefinition[] {
-  return manifest.views.map((v, i) => ({
-    id: `view-${i + 1}`,
-    name: v.name,
-    ...(v.caption !== undefined ? { caption: v.caption } : {}),
-    isDefault: v.isDefault,
-    ...(v.file !== undefined ? { source: v.file } : {}),
-    controls: [],
-    boundPaths: v.bindings.map((b) => b.item),
-  }));
+function buildViews(
+  manifest: ManifestModel,
+  pkg: XsnPackage,
+  rootPath: string,
+  schema: SchemaNode,
+  namespaces: NamespaceDefinition[],
+  diagnostics: FormDefinition["diagnostics"],
+): ViewDefinition[] {
+  const uriByPrefix = new Map(namespaces.map((n) => [n.prefix, n.uri]));
+  const present = new Set(pkg.entries.map((e) => e.name.toLowerCase()));
+  return manifest.views.map((v, i) => {
+    let controls: ViewDefinition["controls"] = [];
+    if (v.file !== undefined && present.has(v.file.toLowerCase())) {
+      try {
+        const parsed = parseView(pkg.read(v.file), {
+          rootPath,
+          typeOfPath: (p) => schemaNodeAtPath(schema, p, uriByPrefix)?.type?.name,
+        });
+        controls = parsed.controls;
+        for (const d of parsed.diagnostics) diagnostics.push({ level: d.level, category: "VIEW", message: `${v.name}: ${d.message}` });
+      } catch (err) {
+        // A view that cannot be read must not prevent the form from opening.
+        diagnostics.push({ level: "error", category: "VIEW", message: `${v.name}: ${(err as Error).message}` });
+      }
+    }
+    return {
+      id: `view-${i + 1}`,
+      name: v.name,
+      ...(v.caption !== undefined ? { caption: v.caption } : {}),
+      isDefault: v.isDefault,
+      ...(v.file !== undefined ? { source: v.file } : {}),
+      controls,
+      boundPaths: v.bindings.map((b) => b.item),
+    };
+  });
 }
 
 function slug(value: string): string {
@@ -167,21 +194,24 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     dataSources.push({ id: `connection-${i + 1}`, kind: "connection", connection: { type: a.kind, name: a.name, status: "unsupported" } }),
   );
 
+  const diagnostics: FormDefinition["diagnostics"] = [
+    ...pkg.diagnostics,
+    ...manifestDiagnostics,
+    ...schema.diagnostics.map((d) => ({ level: d.level, category: "SCHEMA", message: d.message })),
+  ];
+  const views = buildViews(manifest, pkg, rootPath, schema.root, prefixes.definitions, diagnostics);
+
   return {
     id: slug(manifest.formName ?? name),
     name,
     ...(manifest.solutionVersion !== undefined ? { version: manifest.solutionVersion } : {}),
     namespaces: prefixes.definitions,
     dataSources,
-    views: buildViews(manifest),
+    views,
     resources: buildResources(pkg.entries),
     rules: buildRules(manifest),
     validations,
     features: manifest.features,
-    diagnostics: [
-      ...pkg.diagnostics,
-      ...manifestDiagnostics,
-      ...schema.diagnostics.map((d) => ({ level: d.level, category: "SCHEMA", message: d.message })),
-    ],
+    diagnostics,
   };
 }

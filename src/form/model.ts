@@ -21,6 +21,10 @@ export type ControlType =
   | "section"
   | "label"
   | "image"
+  /** Layout structure kept from the original view, so labels and columns stay where the author put them. */
+  | "layoutTable"
+  | "layoutRow"
+  | "layoutCell"
   | "unknown";
 
 export interface ControlDefinition {
