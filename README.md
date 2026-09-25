@@ -4,7 +4,7 @@ XSNium opens, inspects and fills in legacy Microsoft InfoPath `.xsn` form templa
 
 It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The first goal is **compatibility and migration**: correct data and behaviour for legacy forms. **Pixel-perfect rendering** of the original look is also a goal. It comes in stages after the MVP and is measured, not assumed (see [Rendering fidelity](#rendering-fidelity)).
 
-> **Status: early development.** The repository is public, but the project is young: APIs, the internal model and the CLI will change without notice. Package reading, manifest and schema parsing, the internal form model, the XML data model, view conversion and a first local web front end work. Rules and expressions are parsed but not executed yet. See the [Roadmap](#roadmap) for what is done and what is next.
+> **Status: early development.** The repository is public, but the project is young: APIs, the internal model and the CLI will change without notice. Package reading, manifest and schema parsing, the internal form model, the XML data model, view conversion and a first local web front end work. Calculated fields, rules, buttons and validation run. See the [Roadmap](#roadmap) for what is done and what is next.
 
 > XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
 
@@ -20,6 +20,7 @@ An `.xsn` is a template, not a program. XSNium treats it as untrusted input and 
    -> form definition     the application's own representation
    -> view parser         XSL view -> controls, labels, layout, bindings
    -> data instance       XML data, edited by path (values, repeating rows)
+   -> runtime             calculations, rules, buttons and validation (XPath 1.0 interpreter)
    -> rendering engine    view + data -> a concrete tree a UI can draw
    -> front end           local web UI (more front ends can follow)
    -> XML instance        the data the user fills in
@@ -106,6 +107,8 @@ src/
   form/       FormDefinition: the internal model the rest of the app uses
   view/       InfoPath view (XSL) -> controls, without running the XSL
   data/       XML data documents, path subset, FormInstance (edit, rows, save)
+  xpath/      XPath 1.0 interpreter with the InfoPath functions templates use
+  runtime/    calculated fields, rules, rule sets run by buttons, validation
   render/     rendering engine: view + data -> concrete tree (no UI code)
   server/     local web front end (server + plain HTML/JS/CSS)
   cli/        xsnium command
@@ -120,6 +123,7 @@ Layers only depend downwards: the parsers know nothing about the UI, the renderi
 `.xsn` files are untrusted. XSNium is built so that opening one cannot run code or reach the network.
 
 - No code from a template is ever executed (managed code, scripts, ActiveX, macros). It is reported as unsupported instead.
+- Expressions in rules, calculations and validation are interpreted, never compiled: XPath is parsed into a small tree with bounded length and nesting, every evaluation has a step budget, nested evaluation is limited, unknown functions are refused, and nothing outside the form's own data is reachable. Rules and calculations that keep triggering each other stop with a reported error, and patterns that could backtrack catastrophically are not run.
 - XML with a `DOCTYPE` or entity declaration is rejected, which rules out XXE and entity-expansion attacks. Nesting depth is capped.
 - Package extraction rejects absolute paths and `..` traversal, and enforces limits on package size, entry count, per-entry size and total expansion (decompression bombs).
 - External schema imports and data connections are detected and reported, never fetched or executed.
@@ -159,12 +163,14 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 6 | Controls and view conversion | Done |
 | 7 | Rendering engine and first front end | In progress (engine and local web UI work; polish and more controls needed) |
 | 8-9 | UI bindings, repeating structures | Mostly covered by the above; hardening on more forms |
-| 10-12 | Validation, views, rules and expressions | Planned |
+| 10 | Validation (schema and template conditions) | Done |
+| 11 | Views (several views, switching, initial view) | Done |
+| 12 | Rules, calculations and expressions | Done for calculations, change-triggered rules, button rule sets, set-value, switch-view and custom validation; submit and dialog actions are reported, not run |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
 | F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths and box styles done; text details, control chrome, conditional formatting and print to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
-**Today:** open a template, fill it in, and save the result as XML in the local web UI. Rules, calculated fields, validation messages, file attachments, embedded pictures and data connections are not executed yet.
+**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. File attachments, embedded pictures, submission and data connections are not executed yet.
 **MVP goal:** the same, with validation and the common rules working, on a set of real forms.
 **Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a. The final application is intended to ship as a desktop app for Windows, macOS and Linux, reusing the same core and UI.
 

@@ -796,7 +796,7 @@ What it defines, and where XSNium stands:
 * **Digital signature property structure**. Not implemented. Signatures must be treated as untrusted metadata; the specification itself says the captured information is non-trusted.
 * **Property promotion (XFP)** format. Out of scope for the MVP.
 
-Real templates also showed constructs the manifest parser now models but the runtime does not yet execute: rule sets triggered by data changes or by buttons, custom validation conditions, secondary data sources (for example a SharePoint list feeding a dropdown) and submit adapters. They are reported in the compatibility report and executed in Phases 12 and 14.
+Real templates also showed constructs the manifest parser models: rule sets triggered by data changes or by buttons, custom validation conditions, secondary data sources (for example a SharePoint list feeding a dropdown) and submit adapters. Rule sets, calculations and custom validation are now executed (Phases 10 and 12, see the runtime and xpath modules); secondary data sources and submit adapters are reported in the compatibility report and left for Phase 14.
 
 ---
 
