@@ -170,7 +170,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths and box styles done; text details, control chrome, conditional formatting and print to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
-**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Digital signatures, submission and data connections are not executed yet.
+**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Dropdowns fed by a data connection (a SharePoint list, a service) can be filled from a local XML file you supply; the connection itself is never run. Digital signatures and submission are not executed yet.
 **MVP goal:** the same, with validation and the common rules working, on a set of real forms.
 **Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a. The final application is intended to ship as a desktop app for Windows, macOS and Linux, reusing the same core and UI.
 
