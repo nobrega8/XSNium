@@ -116,6 +116,11 @@ describe("buildFormDefinition", () => {
     assert.deepEqual(logo, { name: "logo.png", mimeType: "image/png", size: 3, kind: "image" });
   });
 
+  it("reports calculations the runtime can run as supported", () => {
+    const calc = f.features.find((x) => x.feature === "Calculated fields");
+    assert.equal(calc?.support, "supported");
+  });
+
   it("carries detected features and diagnostics", () => {
     assert.ok(f.features.some((x) => x.feature === "Custom code" && x.support === "unsupported"));
     assert.ok(Array.isArray(f.diagnostics));

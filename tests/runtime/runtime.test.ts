@@ -295,3 +295,18 @@ describe("real-world runtime", { skip: fixtures.length === 0 && "no local fixtur
     });
   }
 });
+
+describe("what the compatibility report says about rules and calculations", () => {
+  const feature = (name: string, form = runtimeFixture().form) => form.features.find((f) => f.feature === name);
+
+  it("calls calculations and validation supported when every expression can run", () => {
+    assert.equal(feature("Calculated fields")?.support, "supported");
+    assert.equal(feature("Custom validation")?.support, "supported");
+  });
+
+  it("calls rules partial when one uses a function or an action that is not implemented, and says which", () => {
+    const rules = feature("Rules");
+    assert.equal(rules?.support, "partial");
+    assert.match(rules?.detail ?? "", /nosuchfunction|unknown:fn|dialogBoxMessageAction/);
+  });
+});

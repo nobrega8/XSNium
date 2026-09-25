@@ -211,6 +211,13 @@ const INFOPATH: Record<string, Fn> = {
   [`${NS.env}|IsBrowser`]: () => false,
 };
 
+/** Whether a function is implemented, without calling it. */
+export function isKnownFunction(prefix: string | undefined, name: string, resolvePrefix: (prefix: string) => string | undefined): boolean {
+  if (prefix === undefined) return name in CORE;
+  const uri = resolvePrefix(prefix) ?? CONVENTIONAL[prefix];
+  return uri !== undefined && `${uri}|${name}` in INFOPATH;
+}
+
 export function callFunction(prefix: string | undefined, name: string, args: Value[], ctx: EvalContext): Value {
   if (prefix === undefined) {
     const fn = CORE[name];

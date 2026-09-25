@@ -1,9 +1,10 @@
 import path from "node:path";
-import type { ManifestButton, ManifestModel, ManifestRuleAction, ManifestRuleSet } from "../manifest/model.ts";
+import type { DetectedFeature, ManifestButton, ManifestModel, ManifestRuleAction, ManifestRuleSet } from "../manifest/model.ts";
 import { readManifest } from "../manifest/read.ts";
 import type { PackageEntry, XsnPackage } from "../package/xsn-package.ts";
 import type { Facets, SchemaModel, SchemaNode } from "../schema/model.ts";
 import { readSchema } from "../schema/read.ts";
+import { checkExpression } from "../xpath/analyze.ts";
 import { joinPath, parseView } from "../view/parser.ts";
 import { safeLength } from "../view/style.ts";
 import { schemaNodeAtPath } from "./schema-path.ts";
@@ -313,6 +314,38 @@ function buildViews(
   });
 }
 
+/** How much of the rules, calculations and custom validation this runtime can actually run. */
+function executableFeatures(manifest: ManifestModel, rules: RuleDefinition[], validations: ValidationDefinition[], namespaces: NamespaceDefinition[]): DetectedFeature[] {
+  const uriByPrefix = new Map(namespaces.map((n) => [n.prefix, n.uri]));
+  const resolve = (prefix: string) => uriByPrefix.get(prefix);
+  const problems = (expressions: (string | undefined)[]): string[] =>
+    expressions.flatMap((e) => (e === undefined || e === "" ? [] : [checkExpression(e, resolve)])).flatMap((c) => (c.problem ? [c.problem] : []));
+
+  const kept = manifest.features.filter((f) => !["Rules", "Calculated fields", "Custom validation"].includes(f.feature));
+  const out: DetectedFeature[] = [...kept];
+  const location = "manifest.xsf";
+  const summarise = (list: string[]) => [...new Set(list)].slice(0, 3).join("; ");
+
+  const calcs = rules.filter((r) => r.origin === "calculation");
+  if (calcs.length > 0) {
+    const bad = problems(calcs.flatMap((r) => r.actions.map((a) => (a.type === "setValue" ? a.expression : undefined))));
+    out.push({ feature: "Calculated fields", support: bad.length === 0 ? "supported" : "partial", location, detail: bad.length === 0 ? `${calcs.length} calculation(s)` : summarise(bad) });
+  }
+  const own = rules.filter((r) => r.origin === "rule");
+  if (own.length > 0) {
+    const unsupportedActions = own.flatMap((r) => r.actions.flatMap((a) => (a.type === "unsupported" ? [a.kind] : [])));
+    const bad = problems(own.flatMap((r) => [r.condition, ...r.actions.map((a) => (a.type === "setValue" ? a.expression : undefined))]));
+    const issues = [...bad, ...(unsupportedActions.length > 0 ? [`Actions not supported: ${[...new Set(unsupportedActions)].join(", ")}`] : [])];
+    out.push({ feature: "Rules", support: issues.length === 0 ? "supported" : "partial", location, detail: issues.length === 0 ? `${own.length} rule(s)` : summarise(issues) });
+  }
+  const custom = validations.filter((v) => v.type === "custom");
+  if (custom.length > 0) {
+    const bad = problems(custom.map((v) => v.expression));
+    out.push({ feature: "Custom validation", support: bad.length === 0 ? "supported" : "partial", location, detail: bad.length === 0 ? `${custom.length} condition(s)` : summarise(bad) });
+  }
+  return out;
+}
+
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "form";
 }
@@ -338,6 +371,9 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
   const flatten = (cs: ViewDefinition["controls"]): ViewDefinition["controls"] => cs.flatMap((c) => [c, ...flatten(c.children ?? [])]);
   for (const v of views) for (const c of flatten(v.controls)) if (c.type === "repeatingTable" && c.binding) optionalNodes.delete(c.binding);
 
+  const rules = buildRules(manifest);
+  const allValidations = [...validations, ...buildValidations(manifest)];
+
   return {
     id: slug(manifest.formName ?? name),
     name,
@@ -351,10 +387,10 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     dataSources,
     views,
     resources: buildResources(pkg.entries),
-    rules: buildRules(manifest),
-    validations: [...validations, ...buildValidations(manifest)],
+    rules,
+    validations: allValidations,
     optionalNodes: [...optionalNodes],
-    features: manifest.features,
+    features: executableFeatures(manifest, rules, allValidations, prefixes.definitions),
     diagnostics,
   };
 }

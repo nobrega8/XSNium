@@ -28,7 +28,8 @@ function inspect(file: string): number {
     console.log(`[VIEW] ${manifest.views.length} view(s), default: ${manifest.defaultView ?? "(none)"}`);
     for (const v of manifest.views) console.log(`  ${v.name} -> ${v.file ?? "(no file)"} (${v.bindings.length} bindings)`);
     console.log(`[CONNECTION] ${manifest.dataAdapters.length} data adapter(s)`);
-    for (const f of manifest.features) console.log(`[FEATURE] ${f.support}: ${f.feature}${f.detail ? ` (${f.detail})` : ""}`);
+    // The form's own view of the features says what this runtime can actually run, not just what is declared.
+    for (const f of buildFormDefinition(pkg).features) console.log(`[FEATURE] ${f.support}: ${f.feature}${f.detail ? ` (${f.detail})` : ""}`);
   }
   for (const d of diagnostics) console.log(`[${d.category}] ${d.level}: ${d.message}`);
   return pkg.manifest ? 0 : 1;
