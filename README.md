@@ -181,7 +181,7 @@ Tests that use real-world templates read `.xsn` files from `example_files/`. Tha
 | 11 | Views (several views, switching, initial view) | Done |
 | 12 | Rules, calculations and expressions | Done for calculations, change-triggered rules, button rule sets, set-value, switch-view and custom validation; submit and dialog actions are reported, not run |
 | 13-15 | Compatibility report, external connections, SharePoint | Planned |
-| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths and box styles done; text details, control chrome, conditional formatting and print to do |
+| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths, box styles and conditional formatting of style done; text details, control chrome and print to do |
 | 16 | Form authoring: create and edit templates | Planned, after the MVP |
 
 **Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Dropdowns fed by a data connection (a SharePoint list, a service) can be filled from a local XML file you supply; the connection itself is never run. Digital signatures and submission are not executed yet.
