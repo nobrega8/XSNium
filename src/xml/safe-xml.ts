@@ -18,6 +18,8 @@ export interface XmlElement {
   attrs: Record<string, string>;
   children: XmlElement[];
   text: string;
+  /** Namespace prefixes in scope at this element (prefix "" is the default namespace). */
+  scope: ReadonlyMap<string, string>;
 }
 
 const MAX_DEPTH = 256;
@@ -72,12 +74,16 @@ function convert(node: RawNode, scope: Map<string, string>, depth: number): XmlE
   if (qname === undefined || qname.startsWith("#") || qname.startsWith("?") || qname.startsWith("!")) return undefined;
 
   const rawAttrs = (node[":@"] ?? {}) as Record<string, string>;
-  const inner = new Map(scope);
+  let inner = scope;
+  const declare = (prefix: string, uri: string) => {
+    if (inner === scope) inner = new Map(scope);
+    (inner as Map<string, string>).set(prefix, uri);
+  };
   const attrs: Record<string, string> = {};
   for (const [key, value] of Object.entries(rawAttrs)) {
     const name = key.slice(ATTR_PREFIX.length);
-    if (name === "xmlns") inner.set("", String(value));
-    else if (name.startsWith("xmlns:")) inner.set(name.slice(6), String(value));
+    if (name === "xmlns") declare("", String(value));
+    else if (name.startsWith("xmlns:")) declare(name.slice(6), String(value));
     else attrs[splitName(name).local] = decodeEntities(String(value));
   }
 
@@ -96,7 +102,7 @@ function convert(node: RawNode, scope: Map<string, string>, depth: number): XmlE
       if (el) children.push(el);
     }
   }
-  return { ns, local, attrs, children, text };
+  return { ns, local, attrs, children, text, scope: inner };
 }
 
 export function parseXml(input: Buffer | string): XmlElement {
@@ -119,6 +125,16 @@ export function parseXml(input: Buffer | string): XmlElement {
     if (el) return el;
   }
   throw new XsnError("MALFORMED", "XML document has no root element");
+}
+
+/** Resolve a QName attribute value (e.g. "xsd:string") against the namespaces in scope at `el`. */
+export function resolveQName(el: XmlElement, qname: string): { ns: string; local: string } | undefined {
+  const i = qname.indexOf(":");
+  const prefix = i < 0 ? "" : qname.slice(0, i);
+  const local = i < 0 ? qname : qname.slice(i + 1);
+  if (prefix === "" ) return { ns: el.scope.get("") ?? "", local };
+  const ns = el.scope.get(prefix);
+  return ns === undefined ? undefined : { ns, local };
 }
 
 export function childrenOf(el: XmlElement, ns: string, local: string): XmlElement[] {

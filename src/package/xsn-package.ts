@@ -17,7 +17,7 @@ export interface PackageEntry {
 
 export interface Diagnostic {
   level: "info" | "warning" | "error";
-  category: "PACKAGE" | "MANIFEST" | "SECURITY";
+  category: "PACKAGE" | "MANIFEST" | "SCHEMA" | "SECURITY";
   message: string;
 }
 

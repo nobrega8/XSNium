@@ -7,3 +7,6 @@ export type { PackageLimits } from "./package/limits.ts";
 export { parseManifest } from "./manifest/parser.ts";
 export type * from "./manifest/model.ts";
 export { readManifest } from "./manifest/read.ts";
+export { buildSchemaModel } from "./schema/parser.ts";
+export { readSchema } from "./schema/read.ts";
+export type * from "./schema/model.ts";
