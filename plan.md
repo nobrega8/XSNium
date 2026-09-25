@@ -49,7 +49,8 @@ Do NOT attempt to implement all InfoPath functionality in the first version.
 
 The following are explicitly outside the initial MVP:
 
-* Full InfoPath Designer compatibility.
+* Full InfoPath Designer compatibility (opening and editing InfoPath's own design-time data).
+* Form authoring (creating or editing templates). This is a planned later stage, see section 37a, but it is not part of the MVP.
 * Pixel-perfect rendering of every InfoPath control.
 * Full SharePoint integration.
 * Full SQL integration.
@@ -61,7 +62,7 @@ The following are explicitly outside the initial MVP:
 * Windows COM automation.
 * Replication of Microsoft Office internals.
 * Execution of untrusted code contained in an XSN.
-* Automatic modification of original XSN files.
+* Automatic modification of original XSN files. Authoring, when it exists, always writes a new file (see section 37a).
 
 These can be considered later.
 
@@ -1038,6 +1039,14 @@ SharePoint integration
 
 Do not jump directly to SharePoint integration.
 
+```text
+Phase 16 (post-MVP, see section 37a)
+────────────────────────────────────
+Form authoring: create and edit form templates
+```
+
+Authoring must not start until Phases 1 to 13 are stable. It is built on the internal form model and adds no new dependency of the parser or renderer on the editor.
+
 ---
 
 # 32. Architecture Rules
@@ -1063,6 +1072,8 @@ Never execute code from an XSN.
 ### Rule 5
 
 Never modify the original XSN automatically.
+
+Authoring features write a new file ("Save as") and never overwrite the file that was opened.
 
 ### Rule 6
 
@@ -1238,6 +1249,46 @@ Internal Form Model
 Do not implement these exports in the MVP.
 
 Design the internal model so they remain possible.
+
+---
+
+# 37a. Form Authoring (post-MVP)
+
+The application will eventually let users **create and edit form templates**, not only fill in existing ones. This is a later stage and is deliberately kept out of the MVP.
+
+Scope, in order:
+
+```text
+Stage A  Edit an existing template
+         Change fields, layout, labels, validation and simple rules
+         on the internal model, then save as a new template.
+
+Stage B  Create a template from scratch
+         Design the schema and views visually, starting from an
+         empty internal model or from an imported/migrated form.
+
+Stage C  Optional .xsn export
+         Serialise the internal model back to the InfoPath package
+         format (CAB, manifest.xsf, XSD, XSL views) so forms remain
+         usable by other InfoPath-compatible tools.
+```
+
+Design rules:
+
+* The editor works on the **internal form model** (section 8), never on raw manifest/XSD/XSL text.
+* The application's own template format is the primary output. It is a JSON/XML representation of the internal model, versioned and documented, and it is what round-trips reliably.
+* `.xsn` export is a separate serialiser. It is optional and best-effort; features the internal model cannot express must be reported, not silently dropped.
+* Saving never overwrites the file that was opened. Original `.xsn` files stay untouched (Rule 5).
+* Template data sanitisation applies: authoring must not embed executable content, and imported templates are still untrusted input.
+* Do not start the editor before the parser, model, binding, validation and rules layers are stable. The editor is the strongest consumer of the model, so it should be built against a model that has already been proven on real forms.
+
+Open questions to settle before Stage A:
+
+* Which formats are the primary authoring target: the native format only, or native plus `.xsn` export?
+* How much of InfoPath's rule and expression language must be authorable (calculated fields only, or conditional formatting and actions too)?
+* Which subset of controls is authorable first.
+
+This feeds the migration goal (section 36): a form that cannot be fully migrated automatically can be repaired in the editor and then exported to a modern format.
 
 ---
 
