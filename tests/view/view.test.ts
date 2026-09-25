@@ -187,6 +187,23 @@ describe("constructs seen in real templates", () => {
   });
 });
 
+describe("optional sections", () => {
+  const body = `<xsl:apply-templates select="my:group/my:opt" mode="_o"/><div class="optionalPlaceholder" xd:xmlToEdit="opt_1" xd:action="xCollection::insert"><font>Insert the option</font></div>`;
+  const tpl = `<xsl:template match="my:opt" mode="_o"><div xd:xctname="RepeatingSection" xd:CtrlId="OPT"><span xd:xctname="PlainText" xd:CtrlId="F" xd:binding="my:f"/></div></xsl:template>`;
+
+  it("uses the placeholder text as the label for adding the section", () => {
+    const { controls } = parse(body, tpl);
+    const section = controls.find((c) => c.id === "OPT")!;
+    assert.equal(section.properties["addLabel"], "Insert the option");
+    assert.equal(ofType(controls, "label").length, 0, "the placeholder text is not shown as a label");
+  });
+
+  it("reports the names of nodes the view treats as optional", () => {
+    assert.deepEqual(parse(body, tpl).optionalNames, ["opt_1"]);
+    assert.deepEqual(parse(`<div>No placeholders</div>`).optionalNames, []);
+  });
+});
+
 describe("safety", () => {
   it("rejects DTDs and non-stylesheets", () => {
     assert.throws(() => parseView(`<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><xsl:stylesheet ${NS}/>`, { rootPath: "/my:root" }), { code: "MALFORMED" });

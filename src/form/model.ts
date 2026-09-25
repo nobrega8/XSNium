@@ -147,6 +147,11 @@ export interface FormDefinition {
   resources: ResourceDefinition[];
   rules: RuleDefinition[];
   validations: ValidationDefinition[];
+  /**
+   * Absolute paths of nodes the views treat as optional (inserted on demand). New data leaves them out,
+   * while everything else the schema describes is present, as in the template's own initial data.
+   */
+  optionalNodes: string[];
   /** What the template uses that this runtime cannot fully honour. */
   features: DetectedFeature[];
   /** Non-fatal problems found while building the definition. */

@@ -35,6 +35,8 @@ export interface ViewParseOptions {
 
 export interface ViewParseResult {
   controls: ControlDefinition[];
+  /** Names (xd:xmlToEdit) of the nodes this view treats as optional: shown as "click to add" until inserted. */
+  optionalNames: string[];
   diagnostics: { level: "info" | "warning"; message: string }[];
 }
 
@@ -84,6 +86,7 @@ class ViewBuilder {
   private controlCount = 0;
   private idCounter = 0;
   private conditionals = 0;
+  readonly optionalNames = new Set<string>();
   readonly diagnostics: ViewParseResult["diagnostics"] = [];
 
   constructor(stylesheet: XmlElement, options: ViewParseOptions) {
@@ -234,7 +237,16 @@ class ViewBuilder {
 
   private walkHtml(el: XmlElement, ctx: string, out: ControlDefinition[], frame: Frame, depth: number): void {
     const tag = el.local.toLowerCase();
-    if (SKIPPED_TAGS.has(tag) || /optionalPlaceholder/i.test(el.attrs["class"] ?? "")) return;
+    if (SKIPPED_TAGS.has(tag)) return;
+    if (/optionalPlaceholder/i.test(el.attrs["class"] ?? "")) {
+      // The "click to add" area of an optional section: its text names what would be inserted.
+      const optionalName = xdAttr(el, "xmlToEdit");
+      if (optionalName) this.optionalNames.add(optionalName);
+      const text = textOf(el);
+      const previous = out[out.length - 1];
+      if (text && previous && (previous.type === "repeatingSection" || previous.type === "section")) previous.properties["addLabel"] ??= text;
+      return;
+    }
 
     if (tag === "table") {
       this.flush(out, frame);
@@ -475,5 +487,5 @@ export function parseView(xsl: Buffer | string, options: ViewParseOptions): View
   }
   const builder = new ViewBuilder(stylesheet, options);
   const controls = builder.build(stylesheet);
-  return { controls, diagnostics: builder.diagnostics };
+  return { controls, optionalNames: [...builder.optionalNames], diagnostics: builder.diagnostics };
 }

@@ -237,6 +237,7 @@ function buildViews(
   schema: SchemaNode,
   namespaces: NamespaceDefinition[],
   diagnostics: FormDefinition["diagnostics"],
+  optionalNodes: Set<string>,
 ): ViewDefinition[] {
   const uriByPrefix = new Map(namespaces.map((n) => [n.prefix, n.uri]));
   const present = new Set(pkg.entries.map((e) => e.name.toLowerCase()));
@@ -250,6 +251,11 @@ function buildViews(
         });
         controls = parsed.controls;
         attachButtonRules(controls, v.buttons);
+        const itemByName = new Map(v.bindings.map((b) => [b.name, b.item]));
+        for (const name of parsed.optionalNames) {
+          const item = itemByName.get(name);
+          if (item) optionalNodes.add(item);
+        }
         for (const d of parsed.diagnostics) diagnostics.push({ level: d.level, category: "VIEW", message: `${v.name}: ${d.message}` });
       } catch (err) {
         // A view that cannot be read must not prevent the form from opening.
@@ -287,7 +293,11 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     ...manifestDiagnostics,
     ...schema.diagnostics.map((d) => ({ level: d.level, category: "SCHEMA", message: d.message })),
   ];
-  const views = buildViews(manifest, pkg, rootPath, schema.root, prefixes.definitions, diagnostics);
+  const optionalNodes = new Set<string>();
+  const views = buildViews(manifest, pkg, rootPath, schema.root, prefixes.definitions, diagnostics, optionalNodes);
+  // A repeating table always shows at least one row, even though it has an "insert" affordance too.
+  const flatten = (cs: ViewDefinition["controls"]): ViewDefinition["controls"] => cs.flatMap((c) => [c, ...flatten(c.children ?? [])]);
+  for (const v of views) for (const c of flatten(v.controls)) if (c.type === "repeatingTable" && c.binding) optionalNodes.delete(c.binding);
 
   return {
     id: slug(manifest.formName ?? name),
@@ -304,6 +314,7 @@ export function buildFormDefinition(pkg: XsnPackage): FormDefinition {
     resources: buildResources(pkg.entries),
     rules: buildRules(manifest),
     validations: [...validations, ...buildValidations(manifest)],
+    optionalNodes: [...optionalNodes],
     features: manifest.features,
     diagnostics,
   };

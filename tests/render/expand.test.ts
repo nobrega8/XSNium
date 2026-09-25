@@ -116,10 +116,13 @@ describe("real-world rendering", { skip: fixtures.length === 0 && "no local fixt
       for (const v of form.views) {
         for (const n of flat(expandView(v, inst).nodes)) {
           if (!n.repeat?.canAdd) continue;
+          // Everything the view offers to add must actually be addable, including missing ancestors.
+          // Only a limit reached by an earlier addition in this loop is an acceptable refusal.
           try {
             inst.addRow(n.repeat.path);
-          } catch {
-            /* a limit the schema enforces */
+          } catch (err) {
+            const e = err as { code?: string; message?: string };
+            if (!(e.code === "INVALID_OPERATION" && /at most/.test(e.message ?? ""))) throw err;
           }
         }
       }

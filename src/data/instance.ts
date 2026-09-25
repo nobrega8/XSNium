@@ -36,6 +36,7 @@ export class FormInstance {
   private readonly schemaRoot: SchemaNode;
   private readonly uriByPrefix: Map<string, string>;
   private readonly prefixByUri: Map<string, string>;
+  private readonly optional: Set<string>;
 
   constructor(document: DataDocument, form: FormDefinition) {
     const schema = form.dataSources.find((d) => d.kind === "main")?.schema;
@@ -44,6 +45,7 @@ export class FormInstance {
     this.form = form;
     this.schemaRoot = schema;
     this.uriByPrefix = new Map(form.namespaces.map((n) => [n.prefix, n.uri]));
+    this.optional = new Set(form.optionalNodes ?? []);
     this.prefixByUri = new Map();
     for (const n of form.namespaces) if (!this.prefixByUri.has(n.uri)) this.prefixByUri.set(n.uri, n.prefix);
   }
@@ -121,6 +123,21 @@ export class FormInstance {
       if (!node) return undefined;
     }
     return node;
+  }
+
+  private pathOfElement(el: DataElement | undefined): string {
+    const names: string[] = [];
+    for (let cur = el; cur; cur = cur.parent) {
+      const prefix = this.prefixByUri.get(cur.ns);
+      names.unshift(prefix ? `${prefix}:${cur.local}` : cur.local);
+    }
+    return names.length > 0 ? `/${names.join("/")}` : "";
+  }
+
+  /** prefix:name as it appears in the form's own paths. */
+  private pathName(node: SchemaNode): string {
+    const prefix = this.prefixByUri.get(node.ns);
+    return prefix ? `${prefix}:${node.name}` : node.name;
   }
 
   private prefixFor(ns: string, at: DataElement | undefined): string {
@@ -201,21 +218,31 @@ export class FormInstance {
   }
 
   /** New element for a schema node: optional fields as empty elements, `minOccurs` rows for repeating ones. */
-  private skeleton(node: SchemaNode, parent: DataElement | undefined, budget: { count: number }): DataElement {
+  private skeleton(node: SchemaNode, parent: DataElement | undefined, budget: { count: number }, path?: string): DataElement {
     if (++budget.count > MAX_SKELETON_ELEMENTS) throw new XsnError("LIMIT_EXCEEDED", "Form skeleton is too large");
     const el = newElement(node.ns, "", node.name, parent);
     el.prefix = this.prefixFor(node.ns, el);
+    // Absolute path of this element in the form's own prefixes, to recognise the optional nodes below it.
+    path ??= `${this.pathOfElement(parent)}/${this.pathName(node)}`;
     if (node.fixedValue !== undefined || node.defaultValue !== undefined) el.content = [node.fixedValue ?? node.defaultValue ?? ""];
     for (const attr of node.attributes) {
       if (attr.required || attr.defaultValue !== undefined || attr.fixedValue !== undefined) {
         el.attributes.push({ ns: attr.ns, prefix: this.prefixFor(attr.ns, el), local: attr.name, value: attr.fixedValue ?? attr.defaultValue ?? "" });
       }
     }
+    let choiceTaken = false;
     for (const child of node.children) {
       if (child.recursive) continue;
-      const count = child.repeating ? child.minOccurs : child.inChoice ? 0 : 1;
+      const childPath = `${path}/${this.pathName(child)}`;
+      // Nodes the views show as "click to add" are left out, as in the template's own initial data.
+      // Repeating tables and sections start with one row, and a choice starts with its first alternative.
+      let count = this.optional.has(childPath) ? 0 : child.repeating ? Math.max(child.minOccurs, 1) : 1;
+      if (child.inChoice) {
+        count = choiceTaken ? 0 : count;
+        choiceTaken = true;
+      }
       for (let i = 0; i < count; i++) {
-        const made = this.skeleton(child, el, budget);
+        const made = this.skeleton(child, el, budget, childPath);
         el.content.push(made);
       }
     }
@@ -227,13 +254,31 @@ export class FormInstance {
     const schema = form.dataSources.find((d) => d.kind === "main")?.schema;
     if (!schema) throw new XsnError("INVALID_OPERATION", "Form has no main data source with a schema");
     const holder = new FormInstance({ root: newElement("", "", "placeholder", undefined), instructions: [] }, form);
-    const root = holder.skeleton(schema, undefined, { count: 0 });
+    const root = holder.skeleton(schema, undefined, { count: 0 }, `/${holder.pathName(schema)}`);
     return new FormInstance({ root, instructions: templateInstructions(form) }, form);
   }
 
   // --- repeating structures ------------------------------------------------------------------
 
-  private rowContext(path: string): { parent: DataElement; name: { ns: string; local: string }; schema: SchemaNode } {
+  /** Schema node an absolute path leads to, walking the schema alone (positions are ignored). */
+  private schemaNodeByPath(path: ParsedPath): SchemaNode | undefined {
+    if (!path.absolute) return undefined;
+    let node: SchemaNode | undefined;
+    for (const [i, step] of path.steps.entries()) {
+      if (step.axis !== "child" || step.local === undefined || step.local === "*") return undefined;
+      const uri = step.prefix === undefined ? "" : this.resolve(step.prefix);
+      if (uri === undefined) return undefined;
+      node = i === 0 ? (this.schemaRoot.ns === uri && this.schemaRoot.name === step.local ? this.schemaRoot : undefined) : node?.children.find((c) => c.ns === uri && c.name === step.local);
+      if (!node) return undefined;
+    }
+    return node;
+  }
+
+  /**
+   * Where a repeating (or optional) element lives. When its parent is missing from the data it is
+   * created on demand (the template's "automatically create nodes" behaviour), but only if `create`.
+   */
+  private rowContext(path: string, create = false): { parent: DataElement | undefined; name: { ns: string; local: string }; schema: SchemaNode } {
     const parsed = parsePath(path);
     const last = parsed.steps[parsed.steps.length - 1];
     if (!last || last.axis !== "child" || last.position !== undefined || last.local === undefined || last.local === "*") {
@@ -243,17 +288,26 @@ export class FormInstance {
     if (parentPath.steps.length === 0 && parsed.absolute) {
       throw new XsnError("INVALID_OPERATION", "The root element cannot repeat");
     }
-    const parentNode = selectNodes(this.document, parentPath, this.resolve)[0];
-    if (!parentNode || parentNode.kind !== "element") throw new XsnError("NODE_NOT_FOUND", `Parent of "${path}" not found`);
     const uri = last.prefix === undefined ? "" : this.resolve(last.prefix);
     if (uri === undefined) throw new XsnError("UNSUPPORTED_EXPRESSION", `Unknown namespace prefix "${last.prefix}"`);
-    const schema = this.schemaNodeOf(parentNode.el)?.children.find((c) => c.ns === uri && c.name === last.local);
+
+    let parent: DataElement | undefined;
+    const found = selectNodes(this.document, parentPath, this.resolve)[0];
+    if (found?.kind === "element") parent = found.el;
+    else if (create) {
+      const made = this.create(parentPath, undefined);
+      if (made.kind === "element") parent = made.el;
+    }
+
+    // Prefer the data's own view of the schema, and fall back to the path when the parent is absent.
+    const parentSchema = parent ? this.schemaNodeOf(parent) : this.schemaNodeByPath(parentPath);
+    const schema = parentSchema?.children.find((c) => c.ns === uri && c.name === last.local);
     if (!schema) throw new XsnError("INVALID_OPERATION", `The schema has no element "${last.local}" here`);
-    return { parent: parentNode.el, name: { ns: uri, local: last.local }, schema };
+    return { parent, name: { ns: uri, local: last.local }, schema };
   }
 
-  private siblings(ctx: { parent: DataElement; name: { ns: string; local: string } }): DataElement[] {
-    return elementChildren(ctx.parent).filter((c) => c.ns === ctx.name.ns && c.local === ctx.name.local);
+  private siblings(ctx: { parent: DataElement | undefined; name: { ns: string; local: string } }): DataElement[] {
+    return ctx.parent ? elementChildren(ctx.parent).filter((c) => c.ns === ctx.name.ns && c.local === ctx.name.local) : [];
   }
 
   /** How many rows exist at a repeating (or optional) element, and how many the schema allows. */
@@ -288,11 +342,16 @@ export class FormInstance {
 
   /** Add an empty row. `index` is where it goes (default: at the end). */
   addRow(path: string, index?: number): DataElement {
-    const ctx = this.rowContext(path);
+    const probe = this.rowContext(path);
+    this.checkCanAdd(probe.schema, this.siblings(probe).length);
+    // Only now, once the row is known to be allowed, create any missing ancestors.
+    const ctx = this.rowContext(path, true);
+    const parent = ctx.parent!;
     const rows = this.siblings(ctx);
-    this.checkCanAdd(ctx.schema, rows.length);
-    const made = this.skeleton(ctx.schema, ctx.parent, { count: 0 });
-    this.place(ctx, rows, made, index);
+    // A parent created just now already holds its first row (new groups start with one), so that is the row asked for.
+    if (probe.parent === undefined && rows.length > 0) return rows[0]!;
+    const made = this.skeleton(ctx.schema, parent, { count: 0 });
+    this.place({ parent }, rows, made, index);
     return made;
   }
 
@@ -304,7 +363,7 @@ export class FormInstance {
     if (rows.length <= ctx.schema.minOccurs) {
       throw new XsnError("INVALID_OPERATION", `"${ctx.schema.name}" requires at least ${ctx.schema.minOccurs} occurrence(s)`);
     }
-    ctx.parent.content.splice(ctx.parent.content.indexOf(row), 1);
+    ctx.parent!.content.splice(ctx.parent!.content.indexOf(row), 1);
     row.parent = undefined;
   }
 
@@ -316,7 +375,7 @@ export class FormInstance {
     if (!source) throw new XsnError("INVALID_OPERATION", `No row at index ${index}`);
     this.checkCanAdd(ctx.schema, rows.length);
     const copy = cloneElement(source, ctx.parent);
-    this.place(ctx, rows, copy, index + 1);
+    this.place({ parent: ctx.parent! }, rows, copy, index + 1);
     return copy;
   }
 

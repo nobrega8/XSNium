@@ -232,7 +232,10 @@ function drawRepeatingSection(node) {
     drawChildren(item, row.children);
     box.append(item);
   });
-  if (node.repeat && (node.repeat.canAdd || node.rows.length === 0)) box.append(addButton(node, node.rows.length === 0 ? "Add" : "Add another"));
+  if (node.repeat && (node.repeat.canAdd || node.rows.length === 0)) {
+    const label = typeof node.properties.addLabel === "string" ? node.properties.addLabel : "";
+    box.append(addButton(node, node.rows.length === 0 ? (label ? `Add ${label}` : "Add") : label ? `Add another ${label}` : "Add another"));
+  }
   return box;
 }
 

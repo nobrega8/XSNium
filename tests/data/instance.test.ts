@@ -26,12 +26,22 @@ describe("creating and loading instances", () => {
     const form = sampleForm(pkg);
     delete form.dataSources[0]!.initialDataFile;
     const inst = createInstance(pkg, form);
-    assert.deepEqual(inst.select(`${ROOT}/*`).map((n) => (n.kind === "element" ? n.el.local : "")), ["title", "note", "limited", "late"]);
-    // Required repeating element gets its minimum; optional repeating gets none.
+    // Every element the schema describes is present, and repeating structures start with one row.
+    assert.deepEqual(inst.select(`${ROOT}/*`).map((n) => (n.kind === "element" ? n.el.local : "")), ["title", "note", "items", "limited", "late"]);
     assert.equal(inst.rowCount(`${ROOT}/my:limited`), 1);
-    assert.equal(inst.rowCount(`${ROOT}/my:items`), 0);
+    assert.equal(inst.rowCount(`${ROOT}/my:items`), 1);
     assert.equal(inst.getValue(`${ROOT}/@version`), "1");
     assert.match(inst.toXml(), new RegExp(`xmlns:my="${MY}"`));
+  });
+
+  it("leaves out the nodes the views show as optional, so they can be inserted on demand", () => {
+    const pkg = samplePackage();
+    const form = sampleForm(pkg);
+    delete form.dataSources[0]!.initialDataFile;
+    form.optionalNodes = [`${ROOT}/my:items`, `${ROOT}/my:late`];
+    const inst = createInstance(pkg, form);
+    assert.deepEqual(inst.select(`${ROOT}/*`).map((n) => (n.kind === "element" ? n.el.local : "")), ["title", "note", "limited"]);
+    assert.deepEqual(inst.rowInfo(`${ROOT}/my:items`), { count: 0, min: 0, max: "unbounded" });
   });
 
   it("loads existing data for the same form", () => {
@@ -198,6 +208,43 @@ describe("repeating rows", () => {
     const xml = inst.toXml();
     assert.equal((xml.match(/<my:items /g) ?? []).length, 2);
     assert.equal(loadInstance(xml, form).getValue(`${ITEMS}[2]/my:name`), "second");
+  });
+});
+
+describe("optional structures whose parents are missing", () => {
+  const CHOICE_SCHEMA_ROOT = "/my:root";
+
+  it("reports limits from the schema even when the parent is absent", () => {
+    const { form } = fresh();
+    const inst = loadInstance(`<my:root xmlns:my="${MY}"><my:title>t</my:title><my:limited>x</my:limited></my:root>`, form);
+    assert.deepEqual(inst.rowInfo(`${CHOICE_SCHEMA_ROOT}/my:items`), { count: 0, min: 0, max: "unbounded" });
+  });
+
+  it("creates missing ancestors when a row is added, but not when it is merely asked about", () => {
+    const pkg = samplePackage();
+    const def = sampleForm(pkg);
+    const nested = structuredClone(def);
+    // Make items a child of a missing single group by nesting it in the schema tree.
+    const schema = nested.dataSources[0]!.schema!;
+    const items = schema.children.find((c) => c.name === "items")!;
+    const group = { ...items, name: "group", repeating: false, maxOccurs: 1, minOccurs: 0, required: false, children: [items], attributes: [], type: undefined };
+    schema.children = schema.children.filter((c) => c.name !== "items");
+    schema.children.splice(2, 0, group);
+    const inst = loadInstance(`<my:root xmlns:my="${MY}"><my:title>t</my:title><my:limited>x</my:limited></my:root>`, nested);
+    assert.equal(inst.rowCount(`${ROOT}/my:group/my:items`), 0);
+    assert.equal(inst.select(`${ROOT}/my:group`).length, 0, "asking does not create anything");
+    inst.addRow(`${ROOT}/my:group/my:items`);
+    assert.equal(inst.select(`${ROOT}/my:group`).length, 1, "the missing group was created");
+    assert.equal(inst.rowCount(`${ROOT}/my:group/my:items`), 1);
+    const order = inst.select(`${ROOT}/*`).map((n) => (n.kind === "element" ? n.el.local : ""));
+    assert.deepEqual(order, ["title", "group", "limited"]);
+  });
+
+  it("does not create ancestors for a row that is not allowed", () => {
+    const { form } = fresh();
+    const inst = loadInstance(`<my:root xmlns:my="${MY}"><my:title>t</my:title><my:limited>x</my:limited></my:root>`, form);
+    assert.throws(() => inst.addRow(`${ROOT}/my:title`), { code: "INVALID_OPERATION" });
+    assert.equal(inst.select(`${ROOT}/my:title`).length, 1);
   });
 });
 
