@@ -77,6 +77,18 @@ function optionValueExpression(option: XmlElement): string | undefined {
   return undefined;
 }
 
+/** Only the namespace prefixes an expression uses, so the description of a dropdown stays small. */
+function usedNamespaces(expressions: string[], scope: ReadonlyMap<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const expression of expressions) {
+    for (const m of expression.matchAll(/([A-Za-z_][\w.-]*):[A-Za-z_*]/g)) {
+      const uri = scope.get(m[1]!);
+      if (uri !== undefined) out[m[1]!] = uri;
+    }
+  }
+  return out;
+}
+
 function optionLabelExpression(option: XmlElement): string | undefined {
   return option.children.filter((c) => isXsl(c, "value-of")).pop()?.attrs["select"];
 }
@@ -596,7 +608,7 @@ class ViewBuilder {
             const value = optionValueExpression(option);
             const label = optionLabelExpression(option) ?? value;
             if (value !== undefined && label !== undefined) {
-              return { dataSource: m[1]!, select: m[2]!, value, label, namespaces: Object.fromEntries(next.scope) };
+              return { dataSource: m[1]!, select: m[2]!, value, label, namespaces: usedNamespaces([m[2]!, value, label], next.scope) };
             }
           }
         }
