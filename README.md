@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon-128.png" alt="XSNium logo" width="96" height="96"></p>
+
 # XSNium
 
 [![CI](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml/badge.svg)](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml)

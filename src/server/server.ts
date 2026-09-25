@@ -46,6 +46,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "/app.css": { file: "app.css", type: "text/css; charset=utf-8" },
+  "/icon.svg": { file: "icon.svg", type: "image/svg+xml" },
 };
 
 export interface ServerOptions {
