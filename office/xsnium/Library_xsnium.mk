@@ -31,6 +31,7 @@ $(eval $(call gb_Library_add_exception_objects,xsnium,\
     xsnium/source/manifest/manifest \
     xsnium/source/package/cab \
     xsnium/source/package/xsnpackage \
+    xsnium/source/schema/schema \
     xsnium/source/xml/safexml \
 ))
 

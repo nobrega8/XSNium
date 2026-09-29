@@ -18,6 +18,11 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -147,6 +152,26 @@ template <typename F> inline ErrorCode errorOf(F aWork)
     return ErrorCode::Malformed;
 }
 
+/**
+ * Call `aCheck(bytes)` for every .xsn in the folder XSNIUM_EXAMPLES names. Real templates hold company
+ * data, so they are never part of the repository: without the variable, nothing runs.
+ */
+template <typename F> inline void forEachExample(F aCheck)
+{
+    const char* pFolder = std::getenv("XSNIUM_EXAMPLES");
+    if (!pFolder || !std::filesystem::is_directory(pFolder))
+        return;
+    for (const auto& rFile : std::filesystem::directory_iterator(pFolder))
+    {
+        std::string aExtension = rFile.path().extension().string();
+        for (char& c : aExtension)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (aExtension != ".xsn")
+            continue;
+        std::ifstream aStream(rFile.path(), std::ios::binary);
+        aCheck(Bytes((std::istreambuf_iterator<char>(aStream)), std::istreambuf_iterator<char>()));
+    }
+}
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

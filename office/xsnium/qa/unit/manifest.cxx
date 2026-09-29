@@ -279,19 +279,8 @@ public:
     /** Real templates, if XSNIUM_EXAMPLES names a folder of them. They are never part of the repository. */
     void testRealWorldManifests()
     {
-        const char* pFolder = std::getenv("XSNIUM_EXAMPLES");
-        if (!pFolder || !std::filesystem::is_directory(pFolder))
-            return;
-        for (const auto& rFile : std::filesystem::directory_iterator(pFolder))
-        {
-            std::string aExtension = rFile.path().extension().string();
-            for (char& c : aExtension)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (aExtension != ".xsn")
-                continue;
-            std::ifstream aStream(rFile.path(), std::ios::binary);
-            Bytes aData((std::istreambuf_iterator<char>(aStream)), std::istreambuf_iterator<char>());
-            XsnPackage aPackage(aData);
+        forEachExample([](const Bytes& rData) {
+            XsnPackage aPackage(rData);
             CPPUNIT_ASSERT(aPackage.manifest().has_value());
             for (const PackageEntry& rEntry : aPackage.entries())
                 CPPUNIT_ASSERT_EQUAL(size_t(rEntry.size), aPackage.read(rEntry.name).size());
@@ -303,7 +292,7 @@ public:
                 bRoot = bRoot || rSchema.isRoot;
             CPPUNIT_ASSERT(bRoot);
             CPPUNIT_ASSERT_EQUAL(size_t(0), aResult.diagnostics.size());
-        }
+        });
     }
 
     CPPUNIT_TEST_SUITE(ManifestTest);
