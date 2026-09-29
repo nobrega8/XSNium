@@ -2,19 +2,37 @@
 
 ## 1. Project Overview
 
-Build a modern application capable of opening, inspecting, rendering, editing and eventually submitting legacy Microsoft InfoPath `.xsn` form templates without requiring Microsoft InfoPath to be installed.
+XSNium is **a LibreOffice for InfoPath**: a fork of LibreOffice, adapted so that it opens, fills in and designs Microsoft InfoPath `.xsn` form templates, without Microsoft InfoPath or Microsoft Office installed.
 
-The primary goal is **legacy compatibility**.
+Like InfoPath, it has two modes:
+
+* **XSNium Filler** fills in a form: it opens a `.xsn` (or a form's XML data file), shows the form, and saves the XML data file. It never writes the `.xsn`.
+* **XSNium Designer** edits a form: it opens a `.xsn` for design, lets the user change its layout, controls, fields and rules, and saves it as a `.xsn` that the original InfoPath opens.
+
+The primary goal is **legacy compatibility**, in both directions: data filled in XSNium Filler opens in InfoPath, and templates saved by XSNium Designer open in InfoPath.
 
 The application is intended for organizations that still depend on existing InfoPath forms but can no longer rely on installing or licensing InfoPath 2013 on modern workstations.
-
-The application must treat `.xsn` files as a legacy input format and translate their structure into a modern internal representation.
 
 The long-term goal includes **pixel-perfect rendering** of existing forms: a form should look, at its own design size, the way it looked in InfoPath (section 9a). Fidelity is pursued in stages and measured, and it never comes at the cost of security or of data compatibility. The first versions prioritise correct data and behaviour over exact appearance.
 
 The architectural goal is:
 
-> Parse InfoPath → convert to an internal representation → render using a modern UI → preserve compatibility with the original form data.
+> Open InfoPath files directly in a LibreOffice-based application → fill them in (Filler) or edit them (Designer) → write only InfoPath-compatible files: XML data from Filler, `.xsn` from Designer.
+
+A `.xsn` is never converted to another format. It is only written when the user edited it in XSNium Designer and saved it.
+
+## 1a. Product and Installer (decided 2026-09-29)
+
+The final product is **one Windows installer that installs only XSNium Filler and XSNium Designer**. None of the other LibreOffice programs are installed or shown: no Writer, Calc, Impress, Draw, Base or Math as applications, and no LibreOffice Start Center. The LibreOffice code the two modes need (the document core, the form layer, XForms, the UI toolkit) is part of XSNium, but the user only ever sees XSNium.
+
+The installer must provide:
+
+* Start menu entries **XSNium Filler** and **XSNium Designer**, with their own names and icons, and the XSNium branding (splash, about box, window titles), with no LibreOffice product name in the UI. The LibreOffice licence notices stay, as the MPL/LGPL require.
+* File associations: opening a `.xsn` starts Filler; a "Design" entry on the `.xsn` context menu starts Designer. InfoPath XML data files (with the `mso-infoPathSolution` processing instruction) open in Filler.
+* A per-user install by default, an optional per-machine install, and a silent install for corporate deployment (section 35).
+* Its own version numbering (VERSIONING.md) and the same publisher as today ("Afonso Nóbrega Dev").
+
+The existing single-file Node build and its Inno Setup installer are replaced by this installer once Filler reaches the MVP.
 
 ---
 
@@ -53,8 +71,9 @@ Do NOT attempt to implement all InfoPath functionality in the first version.
 
 The following are explicitly outside the initial MVP:
 
-* Full InfoPath Designer compatibility (opening and editing InfoPath's own design-time data).
-* Form authoring (creating or editing templates). This is a planned later stage, see section 37a, but it is not part of the MVP.
+* XSNium Designer. It is part of the product (section 37a) but comes after the Filler MVP.
+* Converting `.xsn` files to other formats (ODF, HTML, ...). XSNium works on the InfoPath files themselves.
+* Shipping or exposing the other LibreOffice applications (section 1a).
 * Pixel-perfect rendering in the first MVP. It is a goal for later stages (section 9a); the MVP only needs correct data and behaviour.
 * Full SharePoint integration.
 * Full SQL integration.
@@ -66,7 +85,7 @@ The following are explicitly outside the initial MVP:
 * Windows COM automation.
 * Replication of Microsoft Office internals.
 * Execution of untrusted code contained in an XSN.
-* Automatic modification of original XSN files. Authoring, when it exists, always writes a new file (see section 37a).
+* Any modification of a `.xsn` other than the user saving it in XSNium Designer (Rule 5).
 
 These can be considered later.
 
@@ -74,7 +93,29 @@ These can be considered later.
 
 # 4. Core Architecture
 
-Use a layered architecture.
+XSNium is built inside a fork of the LibreOffice source code (`libo-core`, cloned to `%USERPROFILE%\lo\libo-core` for the official Windows build setup). The InfoPath support is added as new LibreOffice modules; the rest of LibreOffice is reused, not rewritten.
+
+```text
+XSNium installer (Filler + Designer only)
+        │
+        ├── XSNium Filler     ─┐
+        ├── XSNium Designer   ─┤  LibreOffice application shell, rebranded, one document type
+        │                      │
+        │   InfoPath modules (new, C++)
+        │     ├── XSN package reader and writer (CAB/MSZIP, limits, path checks)
+        │     ├── manifest.xsf, XSD and view (XSL) readers and writers
+        │     ├── form model: the layers of sections 5 to 15
+        │     ├── Filler: view → Writer layout + form controls bound to the XML data,
+        │     │           InfoPath rules, calculations and validation, save XML data
+        │     └── Designer: edit layout, controls, schema and rules; save .xsn
+        │
+        └── Reused from LibreOffice: Writer document core and layout, the form layer
+            and its controls, XForms (bindings to XML), the UI toolkit (VCL), printing and PDF
+```
+
+The TypeScript code in this repository is the **prototype and reference implementation**: its parsers, rules engine, security checks and test suite (including the real-form fixtures and fuzzing) define the behaviour the LibreOffice modules must match, and they are ported, not redesigned. It is not shipped in the final product.
+
+The layered architecture below still applies inside the LibreOffice modules.
 
 ```text
                     ┌───────────────────────────────┐
@@ -1159,9 +1200,9 @@ Never execute code from an XSN.
 
 ### Rule 5
 
-Never modify the original XSN automatically.
+A `.xsn` is only ever written by XSNium Designer, when the user edited it and saved it, like InfoPath Designer does ("Save" writes the template being designed, "Save As" a new one). XSNium Filler never writes a `.xsn`; it writes XML data files. Nothing converts a `.xsn` to another format.
 
-Authoring features write a new file ("Save as") and never overwrite the file that was opened.
+Every `.xsn` XSNium Designer writes must open, fill in and design correctly in the original InfoPath (2010 and 2013). Parts of a template Designer does not understand are kept byte for byte, not dropped.
 
 ### Rule 6
 
@@ -1190,6 +1231,12 @@ Appearance data in a template (styles, fonts, images, layout attributes) is untr
 ---
 
 # 33. Technology Selection
+
+**Decided (2026-09-29): a fork of LibreOffice, in C++, built with LibreOffice's own build system.** The reasons: a complete document layout engine, form controls, XForms bindings to XML, printing and PDF, accessibility and a desktop UI already exist there, and the product must look and behave like an office application with a Filler and a Designer, as InfoPath does. The TypeScript prototype stays as the reference (section 4).
+
+Build on Windows follows the official LibreOffice setup (winget configuration files in `libo-core/.config`: Visual Studio 2022 with C++, Java, WSL). The fork keeps its changes in its own modules and in a small, documented set of patches to LibreOffice, so it can be rebased on new LibreOffice releases.
+
+The text below is the original evaluation, kept for reference.
 
 Choose the technology based on the actual requirements after inspecting the repository.
 
@@ -1262,16 +1309,13 @@ The eventual application should be deployable as a standalone corporate applicat
 Possible deployment:
 
 ```text
-Windows installer
+XSNium Windows installer (MSI, from LibreOffice's installer tooling)
         │
-        ▼
-InfoPath Compatibility Runtime
-        │
-        ├── XSN parser
-        ├── Renderer
-        ├── XML engine
-        └── Inspector
+        ├── XSNium Filler     (fill in forms, save XML data)
+        └── XSNium Designer   (edit forms, save .xsn)
 ```
+
+Only these two programs are installed (section 1a). The MSI supports silent, per-user and per-machine installs so it can be deployed by corporate tools, and it is code-signed before release.
 
 Avoid requiring Microsoft Office.
 
@@ -1344,69 +1388,56 @@ Design the internal model so they remain possible.
 
 ---
 
-# 37a. Form Authoring (post-MVP)
+# 37a. XSNium Designer (after the Filler MVP)
 
-The application will eventually let users **create and edit form templates**, not only fill in existing ones. This is a later stage and is deliberately kept out of the MVP.
+XSNium Designer is the second mode of the product, the counterpart of InfoPath Designer: it **opens a `.xsn` for design and saves it as a `.xsn`**. There is no other template format and no export.
 
 Scope, in order:
 
 ```text
 Stage A  Edit an existing template
-         Change fields, layout, labels, validation and simple rules
-         on the internal model, then save as a new template.
+         Layout, labels, controls and their bindings, field properties,
+         validation and simple rules. Save writes the .xsn.
 
 Stage B  Create a template from scratch
-         Design the schema and views visually, starting from an
-         empty internal model or from an imported/migrated form.
+         New schema, views and controls, saved as a new .xsn.
 
-Stage C  Optional .xsn export
-         Serialise the internal model back to the InfoPath package
-         format (CAB, manifest.xsf, XSD, XSL views) so forms remain
-         usable by other InfoPath-compatible tools.
+Stage C  Rules and data connections
+         Conditional formatting, actions, calculated fields, and the
+         data connections InfoPath templates declare.
 ```
 
 Design rules:
 
-* The editor works on the **internal form model** (section 8), never on raw manifest/XSD/XSL text.
-* The application's own template format is the primary output. It is a JSON/XML representation of the internal model, versioned and documented, and it is what round-trips reliably.
-* `.xsn` export is a separate serialiser. It is optional and best-effort; features the internal model cannot express must be reported, not silently dropped.
-* Saving never overwrites the file that was opened. Original `.xsn` files stay untouched (Rule 5).
-* Template data sanitisation applies: authoring must not embed executable content, and imported templates are still untrusted input.
-* Do not start the editor before the parser, model, binding, validation and rules layers are stable. The editor is the strongest consumer of the model, so it should be built against a model that has already been proven on real forms.
+* The `.xsn` is the format. Designer reads it with the same readers as Filler and writes it back as InfoPath does: CAB package, `manifest.xsf`, XSD schemas, XSL views, template XML, resources.
+* Round-trip fidelity comes first: opening a template in Designer and saving it without changes gives a package InfoPath treats as unchanged. Whatever Designer does not understand (unknown manifest elements, custom code files, unsupported XSL) is carried over byte for byte.
+* Every template Designer writes is checked against the original InfoPath (open, fill in, design) on the reference forms before a release.
+* Only the user's save writes the file (Rule 5). Designer keeps a backup of the file it overwrites.
+* Template data is still untrusted input: Designer never embeds executable content it did not receive, and it never runs custom code.
 
 Open questions to settle before Stage A:
 
-* Which formats are the primary authoring target: the native format only, or native plus `.xsn` export?
-* How much of InfoPath's rule and expression language must be authorable (calculated fields only, or conditional formatting and actions too)?
+* Which InfoPath versions the written `.xsn` targets (2010 and 2013 formats differ in `manifest.xsf` details).
+* How much of InfoPath's rule language is authorable in the first version.
 * Which subset of controls is authorable first.
-
-This feeds the migration goal (section 36): a form that cannot be fully migrated automatically can be repaired in the editor and then exported to a modern format.
 
 ---
 
 # 38. Important Design Principle
 
-The most important architectural decision is:
+The most important design principles are:
 
-> The XSN format is an input format, not the application's internal format.
+> The files are InfoPath's. XSNium reads and writes InfoPath files and nothing else: `.xsn` templates (Designer) and XML data files (Filler).
 
-Never build the entire application around raw InfoPath XML/XSL structures.
-
-Instead:
+> Inside, the application works on a model, not on raw InfoPath XML/XSL structures.
 
 ```text
-XSN
- ↓
-Parser
- ↓
-Internal Representation
- ↓
-Renderer
- ↓
-XML instance
+.xsn ──▶ readers ──▶ form model ──▶ Filler: LibreOffice layout + controls ──▶ XML data file
+                         ▲
+                         └──── Designer edits ──▶ writers ──▶ .xsn
 ```
 
-This makes it possible to support additional legacy formats later.
+The model keeps a link to the parts of the original package it came from, so Designer can write back exactly what changed and carry the rest over unchanged.
 
 ---
 
@@ -1475,15 +1506,15 @@ Do not commit sensitive company data to Git.
 
 # 42. Current Priority
 
-The immediate priority is:
+The immediate priority (2026-09-29) is to stand up the LibreOffice fork:
 
-> Build a robust XSN inspection and parsing engine.
+1. Set up the official Windows build environment and build unmodified LibreOffice from `libo-core`.
+2. Strip the product down to what Filler and Designer need, rebrand it as XSNium, and produce an installer that installs only XSNium Filler and XSNium Designer (section 1a). Do this early, so every later build is the real product.
+3. Port the XSN package reader, manifest, schema and view readers to a new LibreOffice module, with the TypeScript tests and real-form fixtures as the oracle.
+4. XSNium Filler MVP: open a `.xsn`, lay out its default view with LibreOffice's layout and form controls bound to the XML data, run calculations, rules and validation, save InfoPath-compatible XML data.
+5. XSNium Designer (section 37a).
 
-Do not focus on visual polish yet.
-
-The first UI can be simple.
-
-The parser and internal representation are the foundation of the project.
+The TypeScript prototype is not developed further except as the reference for this port.
 
 ---
 
