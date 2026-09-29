@@ -28,6 +28,9 @@ $(eval $(call gb_Library_use_externals,xsnium,\
 ))
 
 $(eval $(call gb_Library_add_exception_objects,xsnium,\
+    xsnium/source/data/datadocument \
+    xsnium/source/data/datapath \
+    xsnium/source/data/instance \
     xsnium/source/manifest/manifest \
     xsnium/source/package/cab \
     xsnium/source/package/xsnpackage \

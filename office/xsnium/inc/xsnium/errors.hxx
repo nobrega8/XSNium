@@ -25,6 +25,9 @@ enum class ErrorCode
     LimitExceeded,
     UnsafePath,
     EntryNotFound,
+    NodeNotFound,
+    UnsupportedExpression,
+    InvalidOperation,
 };
 
 /**
