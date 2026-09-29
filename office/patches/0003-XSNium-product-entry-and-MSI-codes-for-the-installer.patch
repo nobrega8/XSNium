@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Tue, 29 Sep 2026 15:54:51 +0100
+Subject: [PATCH 3/5] XSNium: product entry and MSI codes for the installer
+
+Add an XSNium product to openoffice.lst with its own install folder,
+registry layer and download name, and its own MSI product and upgrade
+codes so it never upgrades or removes a LibreOffice installation.
+
+The windows install module now only carries XSNium's shortcuts and the
+base registry items: no shortcuts or registry items of the other
+applications, and no Writer file associations.
+
+Change-Id: I7153985a4095c77fc5b66b0ff5eb31f3ffb3cd56
+---
+ .../windows/msi_templates/codes_xsnium.txt    |  9 ++++
+ instsetoo_native/util/openoffice.lst.in       | 42 +++++++++++++++++++
+ scp2/InstallModule_windows.mk                 | 13 +-----
+ 3 files changed, 53 insertions(+), 11 deletions(-)
+ create mode 100644 instsetoo_native/inc_openoffice/windows/msi_templates/codes_xsnium.txt
+
+diff --git a/instsetoo_native/inc_openoffice/windows/msi_templates/codes_xsnium.txt b/instsetoo_native/inc_openoffice/windows/msi_templates/codes_xsnium.txt
+new file mode 100644
+index 000000000..b26888be8
+--- /dev/null
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/codes_xsnium.txt
+@@ -0,0 +1,9 @@
++#
++# XSNium: its own MSI codes, so installing XSNium never upgrades or removes a LibreOffice installation.
++# The upgrade code must stay the same for every XSNium release, so a new release replaces the old one.
++#
++[PRODUCTCODE]
++en-US = "{31DEAAEB-7508-49A5-895A-B6A6FDCB8E59}"
++
++[UPGRADECODE]
++en-US = "{30655DFA-E7B0-4624-AC6A-59A52A2CD7B5}"
+\ No newline at end of file
+diff --git a/instsetoo_native/util/openoffice.lst.in b/instsetoo_native/util/openoffice.lst.in
+index a12aa97d7..96094d0e4 100644
+--- a/instsetoo_native/util/openoffice.lst.in
++++ b/instsetoo_native/util/openoffice.lst.in
+@@ -73,6 +73,48 @@ LibreOffice
+     }
+ }
+ 
++XSNium
++{
++    Settings
++    {
++        variables
++        {
++            PRODUCTNAME XSNium
++            PRODUCTVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            PRODUCTEXTENSION .@LIBO_VERSION_MICRO@.@LIBO_VERSION_PATCH@@LIBO_VERSION_SUFFIX@
++            WINDOWSBASISROOTNAME XSNium
++            UNIXBASISROOTNAME xsnium
++            POSTVERSIONEXTENSION
++            BUNDLEIDENTIFIER @MACOSX_BUNDLE_IDENTIFIER@
++            BRANDPACKAGEVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            USERDIRPRODUCTVERSION 4
++            BASEPRODUCTVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@
++            BASISPACKAGEPREFIX xsniumbasis
++            UREPACKAGEPREFIX xsnium
++            SOLSUREPACKAGEPREFIX xsnium
++            REGISTRYLAYERNAME LayerXSNium
++            ADD_INCLUDE_FILES cli_ure/version/version.txt,unoil/climaker/version.txt
++            ADDSYSTEMINTEGRATION 1
++            PACKAGEVERSION @LIBO_VERSION_MAJOR@.@LIBO_VERSION_MINOR@.@LIBO_VERSION_MICRO@.@LIBO_VERSION_PATCH@@LIBO_VERSION_SUFFIX@
++            PACKAGEREVISION {buildid}
++            LICENSENAME @LICENSE@
++            ROOTMODULEGID gid_Module_Root
++            GLOBALPATCHFILEGID gid_File_Txt_Patchfiles
++            SPELLCHECKERFILE spellchecker_selection.txt
++            CHANGETARGETDIR 1
++            PATCHCODEFILE ooo_patchcodes.txt
++            CODEFILENAME codes_xsnium.txt
++        }
++        active          1
++        compression     5
++        script          setup_osl
++        downloadname    XSNium_{productversion}_{os}_install_{languages}
++        langpackdownloadname    XSNium_{productversion}_languagepack_{os}_install_{languages}
++        helppackdownloadname    XSNium_{productversion}_helppack_{os}_install_{languages}
++        include         {installscriptdir},{customtargetpath}/readlicense_oo/readme,{customtargetpath}/sysui/{pkgtype},{customtargetpath}/setup_native,{filelistpath}/PackageSet,{filelistpath}/GeneratedPackage,{filelistpath}/Package,{filelistpath}/ExtensionPackage,{filelistpath}/CustomTarget/helpcontent2/help3xsl/filelists,{extensionsdir},{licensepath},{packinfopath}
++    }
++}
++
+ LibreOfficeDev
+ {
+     Settings
+diff --git a/scp2/InstallModule_windows.mk b/scp2/InstallModule_windows.mk
+index 34f1c49b7..8ea1e256f 100644
+--- a/scp2/InstallModule_windows.mk
++++ b/scp2/InstallModule_windows.mk
+@@ -21,21 +21,12 @@ $(eval $(call gb_InstallModule_add_scpfiles,scp2/windows,\
+     scp2/source/ooo/windowscustomaction_ooo \
+ ))
+ 
++# XSNium: only XSNium's own shortcuts. The other applications are not installed, and Writer's file
++# associations (.odt, .docx, ...) are left out so XSNium never takes over those documents.
+ $(eval $(call gb_InstallModule_add_localized_scpfiles,scp2/windows,\
+-    scp2/source/base/folderitem_base \
+-    scp2/source/base/registryitem_base \
+-    scp2/source/calc/folderitem_calc \
+-    scp2/source/calc/registryitem_calc \
+-    scp2/source/draw/folderitem_draw \
+-    scp2/source/draw/registryitem_draw \
+-    scp2/source/impress/folderitem_impress \
+-    scp2/source/impress/registryitem_impress \
+-    scp2/source/math/folderitem_math \
+-    scp2/source/math/registryitem_math \
+     scp2/source/ooo/folderitem_ooo \
+     scp2/source/ooo/registryitem_ooo \
+     scp2/source/writer/folderitem_writer \
+-    scp2/source/writer/registryitem_writer \
+ ))
+ 
+ # vim: set shiftwidth=4 tabstop=4 noexpandtab:

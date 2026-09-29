@@ -2,17 +2,35 @@
 
 XSNium Filler and XSNium Designer are built from a fork of the LibreOffice source code (see `plan.md`, sections 1a and 4). This page records how the build environment was set up on Windows and the problems met on the way, so the next setup does not repeat them.
 
-The fork lives in `%USERPROFILE%\lo\libo-core`, on the branch `xsnium`. That path is the one LibreOffice's official Windows setup expects.
+## Where the code lives
+
+Everything that is XSNium lives in this repository, under `office/`:
+
+| Path | What it is |
+|---|---|
+| `office/xsnium/` | The `xsnium` LibreOffice module: XSNium's own C++ code (package, manifest, schema and view readers, Filler, Designer) and its tests. |
+| `office/patches/` | XSNium's changes to LibreOffice's own files (installer contents, shortcuts, command line, build fixes), one patch per commit. |
+| `office/LIBREOFFICE_COMMIT` | The LibreOffice commit XSNium is built on. |
+| `office/autogen.xsnium` | XSNium's product settings for LibreOffice's configure. |
+| `office/setup-office.sh` | Prepares a LibreOffice tree from the above. |
+| `office/export-patches.sh` | Writes LibreOffice-side commits back to `office/patches/`. |
+
+LibreOffice's tree (`%USERPROFILE%\lo\libo-core`, the path its official Windows setup expects) is only where XSNium is built. `office/setup-office.sh` fetches LibreOffice at the pinned commit, applies the patches on a branch named `xsnium`, links `office/xsnium` into the tree as a directory junction (so editing here and building there is the same file), and adds the product settings to `autogen.input`.
+
+Working on it:
+
+* Code in `office/xsnium/`: edit it here, build it in the tree with `make xsnium`, run its tests with `make CppunitTest_xsnium_package` (and the other `CppunitTest_xsnium_*` targets), commit it here.
+* A LibreOffice file outside the module: change and commit it in the tree on the `xsnium` branch, then run `office/export-patches.sh` and commit the patches here.
 
 ## 1. Get the source
 
-In Git Bash:
+In Git Bash, after the tools in section 2 are installed:
 
 ```bash
-git clone --depth 1 --config protocol.version=2 --config core.autocrlf=false https://git.libreoffice.org/core ~/lo/libo-core
+office/setup-office.sh
 ```
 
-`core.autocrlf=false` matters: converted line endings break the build.
+It fetches LibreOffice with `core.autocrlf=false`, which matters: converted line endings break the build.
 
 ## 2. Tools (official winget configuration)
 

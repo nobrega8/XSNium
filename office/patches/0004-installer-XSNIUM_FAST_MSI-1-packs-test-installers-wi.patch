@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Tue, 29 Sep 2026 16:09:14 +0100
+Subject: [PATCH 4/5] installer: XSNIUM_FAST_MSI=1 packs test installers with
+ MSZIP
+
+makecab takes minutes to pack the MSI with LZX at the largest window.
+Test installers do not need the smallest size, so XSNIUM_FAST_MSI=1
+switches to MSZIP (about 3 instead of 5 minutes, 247 instead of 201
+MB). Release installers are unchanged.
+
+Change-Id: I900c91c74e22a8b71a739fa0a9c35f03b5d16ae2
+---
+ solenv/bin/modules/installer/windows/msiglobal.pm | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/solenv/bin/modules/installer/windows/msiglobal.pm b/solenv/bin/modules/installer/windows/msiglobal.pm
+index 0c4327afe..fc795dc18 100644
+--- a/solenv/bin/modules/installer/windows/msiglobal.pm
++++ b/solenv/bin/modules/installer/windows/msiglobal.pm
+@@ -54,15 +54,21 @@ sub write_ddf_file_header
+     push(@{$ddffileref} ,$oneline);
+     $oneline = ".Set MaxDiskSize=2147483648\n";     # This allows the .cab file to get a size of 2 GB.
+     push(@{$ddffileref} ,$oneline);
+-    $oneline = ".Set CompressionType=LZX\n";
++    # XSNium: XSNIUM_FAST_MSI=1 uses MSZIP, which makecab packs several times faster than LZX, for
++    # installers that are only for testing. Release installers keep the smallest size (LZX, window 21).
++    my $fast = $ENV{'XSNIUM_FAST_MSI'} && $ENV{'XSNIUM_FAST_MSI'} eq '1';
++    $oneline = ".Set CompressionType=" . ($fast ? "MSZIP" : "LZX") . "\n";
+     push(@{$ddffileref} ,$oneline);
+     $oneline = ".Set Compress=ON\n";
+     push(@{$ddffileref} ,$oneline);
+ # The window size for LZX compression
+ # CompressionMemory=15 | 16 | ... | 21
+ # Reference: http://msdn.microsoft.com/en-us/library/bb417343.aspx
+-    $oneline = ".Set CompressionMemory=$installer::globals::cabfilecompressionlevel\n";
+-    push(@{$ddffileref} ,$oneline);
++    if (!$fast)
++    {
++        $oneline = ".Set CompressionMemory=$installer::globals::cabfilecompressionlevel\n";
++        push(@{$ddffileref} ,$oneline);
++    }
+     $oneline = ".Set Cabinet=ON\n";
+     push(@{$ddffileref} ,$oneline);
+     $oneline = ".Set DiskDirectoryTemplate=" . $installdir . "\n";

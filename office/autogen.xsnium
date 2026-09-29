@@ -1,0 +1,5 @@
+# XSNium product settings. office/setup-office.sh appends these lines to LibreOffice's autogen.input.
+--with-product-name=XSNium
+--with-vendor=Afonso Nóbrega Dev
+--with-package-format=msi
+--enable-release-build

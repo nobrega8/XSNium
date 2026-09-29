@@ -1,0 +1,255 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Tue, 29 Sep 2026 15:32:56 +0100
+Subject: [PATCH 1/5] XSNium: install only XSNium Filler and XSNium Designer
+
+The installer script drops Base, Calc, Draw, Impress, Math, Python,
+extensions and the Office integration modules. The Start menu shows two
+shortcuts, XSNium Filler and XSNium Designer, which start soffice with
+--xsnium-filler or --xsnium-designer; the Start Center and safe-mode
+shortcuts are gone. Both modes open Writer until they are implemented.
+
+Change-Id: If0a824e15ce07d156e66281be6fb903aa29e3d30
+---
+ desktop/source/app/cmdlineargs.cxx       | 14 +++++
+ desktop/source/app/cmdlineargs.hxx       |  4 ++
+ scp2/InstallScript_setup_osl.mk          | 18 +-----
+ scp2/source/ooo/folderitem_ooo.scp       | 72 +-----------------------
+ scp2/source/writer/folderitem_writer.scp | 46 +++++++++++----
+ 5 files changed, 59 insertions(+), 95 deletions(-)
+
+diff --git a/desktop/source/app/cmdlineargs.cxx b/desktop/source/app/cmdlineargs.cxx
+index 3b0fb4b85..0c62939ec 100644
+--- a/desktop/source/app/cmdlineargs.cxx
++++ b/desktop/source/app/cmdlineargs.cxx
+@@ -473,6 +473,19 @@ void CommandLineArgs::ParseCommandLine_Impl( Supplier& supplier )
+                 m_writer = true;
+                 m_bDocumentArgs = true;
+             }
++            // XSNium: the two programs. Both are built on Writer, which is what they start.
++            else if ( oArg == "xsnium-filler" )
++            {
++                m_xsniumMode = XsniumMode::Filler;
++                m_writer = true;
++                m_bDocumentArgs = true;
++            }
++            else if ( oArg == "xsnium-designer" )
++            {
++                m_xsniumMode = XsniumMode::Designer;
++                m_writer = true;
++                m_bDocumentArgs = true;
++            }
+             else if ( oArg == "calc" )
+             {
+                 m_calc = true;
+@@ -714,6 +727,7 @@ void CommandLineArgs::InitParamValues()
+     m_nodefault = false;
+     m_help = false;
+     m_writer = false;
++    m_xsniumMode = XsniumMode::None;
+     m_calc = false;
+     m_draw = false;
+     m_impress = false;
+diff --git a/desktop/source/app/cmdlineargs.hxx b/desktop/source/app/cmdlineargs.hxx
+index 2f533e728..dcd78c127 100644
+--- a/desktop/source/app/cmdlineargs.hxx
++++ b/desktop/source/app/cmdlineargs.hxx
+@@ -87,6 +87,9 @@ class CommandLineArgs
+         bool                IsMath() const { return m_math;}
+         bool                IsWeb() const { return m_web;}
+         bool                IsVersion() const { return m_version;}
++        // XSNium: which of the two programs was started (--xsnium-filler or --xsnium-designer).
++        enum class XsniumMode { None, Filler, Designer };
++        XsniumMode          GetXsniumMode() const { return m_xsniumMode;}
+         bool                HasModuleParam() const;
+         bool                WantsToLoadDocument() const { return m_bDocumentArgs;}
+         bool                IsTextCat() const { return m_textcat;}
+@@ -143,6 +146,7 @@ class CommandLineArgs
+         bool m_nodefault;
+         bool m_help;
+         bool m_writer;
++        XsniumMode m_xsniumMode;
+         bool m_calc;
+         bool m_draw;
+         bool m_impress;
+diff --git a/scp2/InstallScript_setup_osl.mk b/scp2/InstallScript_setup_osl.mk
+index cf69165c1..7306eaf21 100644
+--- a/scp2/InstallScript_setup_osl.mk
++++ b/scp2/InstallScript_setup_osl.mk
+@@ -9,29 +9,17 @@
+ 
+ $(eval $(call gb_InstallScript_InstallScript,setup_osl))
+ 
++# XSNium installs only XSNium Filler and XSNium Designer, which are built on Writer: the other
++# applications (Base, Calc, Draw, Impress, Math) and the Office integration pieces (ActiveX control,
++# quickstarter, SharePoint support, Explorer thumbnails, Python, extensions) are not installed.
+ $(eval $(call gb_InstallScript_use_modules,setup_osl,\
+-	scp2/base \
+-	scp2/calc \
+-	scp2/draw \
+ 	scp2/graphicfilter \
+-	scp2/impress \
+-	scp2/math \
+ 	scp2/ooo \
+-	scp2/python \
+ 	scp2/ure \
+ 	scp2/writer \
+ 	scp2/xsltfilter \
+ 	$(if $(filter WNT,$(OS)),\
+-		scp2/activex \
+-		scp2/quickstart \
+-		scp2/spsupp \
+ 		scp2/windows \
+-		$(if $(filter MSC,$(COM)),\
+-			scp2/winexplorerext \
+-		) \
+-	) \
+-	$(if $(WITH_EXTENSION_INTEGRATION),\
+-		scp2/extensions \
+ 	) \
+ 	$(if $(filter TRUE,$(ENABLE_EVOAB2) $(ENABLE_GIO) $(ENABLE_GTK3)),\
+ 		scp2/gnome \
+diff --git a/scp2/source/ooo/folderitem_ooo.scp b/scp2/source/ooo/folderitem_ooo.scp
+index a9f68ffd3..2922378e2 100644
+--- a/scp2/source/ooo/folderitem_ooo.scp
++++ b/scp2/source/ooo/folderitem_ooo.scp
+@@ -18,73 +18,5 @@
+ 
+ #include "macros.inc"
+ 
+-FolderItem gid_Folderitem_LibreOffice
+-    Name = "%PRODUCTNAME";
+-    ModuleID = gid_Module_Root;
+-#ifdef ENABLE_SILENT_MSI
+-    FolderID = PREDEFINED_STARTMENU;
+-#else
+-    FolderID = gid_Folder_Staroffice51;
+-#endif
+-    FileID = auto_brand_exe_soffice_exe;
+-    IconFile = auto_brand_exe_soffice_exe;
+-    IconID = 0;
+-    WkDir = gid_Brand_Dir_Program;
+-    Parameter = "";
+-    Styles = (NON_ADVERTISED);
+-    ALL_LANG(Tooltip, STR_FI_TOOLTIP_SOFFICE);
+-End
+-
+-FolderItemProperty gid_Fip_LibreOffice_AppID
+-    ShortcutID = gid_Folderitem_LibreOffice;
+-    Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Startcenter";
+-End
+-
+-FolderItem gid_Folderitem_Soffice_Desktop
+-#ifdef ENABLE_SILENT_MSI
+-    Name = "%PRODUCTNAME";
+-#else
+-    Name = "%PRODUCTNAME %PRODUCTVERSION";
+-#endif
+-    ModuleID = gid_Module_Root;
+-    FolderID = PREDEFINED_DESKTOP;
+-    FileID = auto_brand_exe_soffice_exe;
+-    IconFile = auto_brand_exe_soffice_exe;
+-    IconID = 0;
+-    ComponentIDFile = "gid_Brand_File_Desktophelper_Txt";
+-    WkDir = gid_Brand_Dir_Program;
+-    Parameter = "";
+-    Styles = (NON_ADVERTISED,USE_HELPER_FILENAME);
+-    ALL_LANG(Tooltip, STR_FI_TOOLTIP_SOFFICE);
+-    ComponentCondition = "CREATEDESKTOPLINK=1";
+-End
+-
+-FolderItemProperty gid_Fip_Soffice_Desktop_AppID
+-    ShortcutID = gid_Folderitem_Soffice_Desktop;
+-    Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Startcenter";
+-End
+-
+-FolderItem gid_Folderitem_LibreOffice_SafeMode
+-    ALL_LANG(Name, STR_FI_NAME_SAFEMODE);
+-    ModuleID = gid_Module_Root;
+-#ifdef ENABLE_SILENT_MSI
+-    FolderID = PREDEFINED_STARTMENU;
+-#else
+-    FolderID = gid_Folder_Staroffice51;
+-#endif
+-    FileID = auto_brand_exe_soffice_exe;
+-    IconFile = auto_brand_exe_soffice_exe;
+-    IconID = 0;
+-    WkDir = gid_Brand_Dir_Program;
+-    Parameter = "--safe-mode";
+-    Styles = (NON_ADVERTISED);
+-    ALL_LANG(Tooltip, STR_FI_TOOLTIP_SOFFICE);
+-End
+-
+-FolderItemProperty gid_Fip_LibreOffice_SafeMode
+-    ShortcutID = gid_Folderitem_LibreOffice_SafeMode;
+-    Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.SafeMode";
+-End
++// XSNium: no LibreOffice Start Center or safe-mode shortcuts. The only shortcuts are XSNium Filler
++// and XSNium Designer (scp2/source/writer/folderitem_writer.scp).
+diff --git a/scp2/source/writer/folderitem_writer.scp b/scp2/source/writer/folderitem_writer.scp
+index 306fc888d..11c33fe4b 100644
+--- a/scp2/source/writer/folderitem_writer.scp
++++ b/scp2/source/writer/folderitem_writer.scp
+@@ -18,23 +18,49 @@
+ 
+ #include "macros.inc"
+ 
+-#ifndef ENABLE_SILENT_MSI
+-FolderItem gid_Folderitem_Swriter
+-    Name = "%PRODUCTNAME Writer";
++// XSNium: the only two programs the installer shows. Both run soffice.exe; the parameter picks the mode.
++FolderItem gid_Folderitem_Xsnium_Filler
++    Name = "%PRODUCTNAME Filler";
+     ModuleID = gid_Module_Prg_Wrt_Bin;
++#ifdef ENABLE_SILENT_MSI
++    FolderID = PREDEFINED_STARTMENU;
++#else
+     FolderID = gid_Folder_Staroffice51;
+-    FileID = auto_writer_brand_exe_swriter;
+-    IconFile = auto_writer_brand_exe_swriter;
++#endif
++    FileID = auto_brand_exe_soffice_exe;
++    IconFile = auto_brand_exe_soffice_exe;
+     IconID = 0;
+     WkDir = gid_Brand_Dir_Program;
+-    Parameter = "";
++    Parameter = "--xsnium-filler";
+     Styles = (NON_ADVERTISED);
+-    ALL_LANG(Tooltip, STR_FI_TOOLTIP_WRITER);
++    Tooltip = "Fill in InfoPath forms";
+ End
+ 
+-FolderItemProperty gid_Fip_Swriter_AppID
+-    ShortcutID = gid_Folderitem_Swriter;
++FolderItemProperty gid_Fip_Xsnium_Filler_AppID
++    ShortcutID = gid_Folderitem_Xsnium_Filler;
+     Key = "System.AppUserModel.ID";
+-    Value = "TheDocumentFoundation.LibreOffice.Writer";
++    Value = "AfonsoNobregaDev.XSNium.Filler";
+ End
++
++FolderItem gid_Folderitem_Xsnium_Designer
++    Name = "%PRODUCTNAME Designer";
++    ModuleID = gid_Module_Prg_Wrt_Bin;
++#ifdef ENABLE_SILENT_MSI
++    FolderID = PREDEFINED_STARTMENU;
++#else
++    FolderID = gid_Folder_Staroffice51;
+ #endif
++    FileID = auto_brand_exe_soffice_exe;
++    IconFile = auto_brand_exe_soffice_exe;
++    IconID = 0;
++    WkDir = gid_Brand_Dir_Program;
++    Parameter = "--xsnium-designer";
++    Styles = (NON_ADVERTISED);
++    Tooltip = "Design InfoPath form templates";
++End
++
++FolderItemProperty gid_Fip_Xsnium_Designer_AppID
++    ShortcutID = gid_Folderitem_Xsnium_Designer;
++    Key = "System.AppUserModel.ID";
++    Value = "AfonsoNobregaDev.XSNium.Designer";
++End

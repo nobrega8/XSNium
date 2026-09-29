@@ -1,0 +1,3 @@
+# The LibreOffice-based part is built from LibreOffice's tree, which uses LF only; patches must apply byte for byte.
+office/** text eol=lf
+office/patches/*.patch -text

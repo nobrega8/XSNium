@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Tue, 29 Sep 2026 16:23:03 +0100
+Subject: [PATCH 5/5] XSNium: build the xsnium module
+
+Register the xsnium module (InfoPath form support for XSNium Filler and
+Designer) and install its library with Writer. The module itself lives
+in the XSNium repository and is linked into this tree.
+
+Change-Id: Iccde7d3b3dc3f8dd8ea81db41b7fe21760922d8d
+---
+ Repository.mk            | 1 +
+ RepositoryModule_host.mk | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/Repository.mk b/Repository.mk
+index d7b5fa525..7fbc35885 100644
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -575,6 +575,7 @@ $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,writer, \
+ 	wpftwriter \
+ 	sw_writerfilter \
+ 	$(call gb_Helper_optional,DBCONNECTIVITY,writer) \
++	xsnium \
+ ))
+ 
+ $(eval $(call gb_Helper_register_plugins_for_install,OOOLIBS,writer, \
+diff --git a/RepositoryModule_host.mk b/RepositoryModule_host.mk
+index 0da023325..d1cb66d3c 100644
+--- a/RepositoryModule_host.mk
++++ b/RepositoryModule_host.mk
+@@ -193,6 +193,7 @@ $(eval $(call gb_Module_add_moduledirs,libreoffice,\
+ 	xmlreader \
+ 	xmlscript \
+ 	xmlsecurity \
++	xsnium \
+ ))
+ 
+ ifeq (,$(DISABLE_DYNLOADING))

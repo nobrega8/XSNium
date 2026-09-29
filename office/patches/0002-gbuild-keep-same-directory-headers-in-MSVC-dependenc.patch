@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Tue, 29 Sep 2026 15:54:48 +0100
+Subject: [PATCH 2/5] gbuild: keep same-directory headers in MSVC dependencies
+
+With an 8.3 short SRCDIR (C:/Users/AFONSO~1.NOB/lo/LIBO-C~1), cl.exe
+still prints headers found next to the source file with their long path
+(C:\Users\Afonso.nobrega\lo\libo-core\...). The filter only accepted
+paths starting with SRCDIR or BUILDDIR, so those headers were dropped
+as if they were system headers, and editing them rebuilt nothing: a
+changed class layout then crashed soffice at startup.
+
+Pass the long forms of both directories to the filter as well.
+
+Change-Id: I8339938de3cb20777a0614f1d03a53efd3c13a72
+---
+ solenv/gbuild/platform/com_MSC_defs.mk         | 7 ++++++-
+ solenv/gbuild/platform/filter-showIncludes.awk | 5 ++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/solenv/gbuild/platform/com_MSC_defs.mk b/solenv/gbuild/platform/com_MSC_defs.mk
+index 73aa7af1c..25c384388 100644
+--- a/solenv/gbuild/platform/com_MSC_defs.mk
++++ b/solenv/gbuild/platform/com_MSC_defs.mk
+@@ -246,8 +246,13 @@ gb_COMPILERDEBUGOPTFLAGS :=
+ 
+ ifeq ($(gb_FULLDEPS),$(true))
+ gb_COMPILERDEPFLAGS := -showIncludes
++# cl.exe prints headers found next to the source file with their long path, even when SRCDIR is an
++# 8.3 short path (C:/Users/AFONSO~1.NOB/... versus C:/Users/Afonso.nobrega/...). Give the filter the
++# long forms too, or those headers are dropped from the dependencies and editing them rebuilds nothing.
++gb_SRCDIR_LONG := $(shell cygpath -m -l '$(SRCDIR)' 2>/dev/null)
++gb_BUILDDIR_LONG := $(shell cygpath -m -l '$(BUILDDIR)' 2>/dev/null)
+ define gb_create_deps
+-| $(GBUILDDIR)/platform/filter-showIncludes.awk -vdepfile=$(1) -vobjectfile=$(2) -vsourcefile=$(3); exit $${PIPESTATUS[0]}
++| $(GBUILDDIR)/platform/filter-showIncludes.awk -vdepfile=$(1) -vobjectfile=$(2) -vsourcefile=$(3) -vsrcdirlong='$(gb_SRCDIR_LONG)' -vbuilddirlong='$(gb_BUILDDIR_LONG)'; exit $${PIPESTATUS[0]}
+ endef
+ else
+ gb_COMPILERDEPFLAGS :=
+diff --git a/solenv/gbuild/platform/filter-showIncludes.awk b/solenv/gbuild/platform/filter-showIncludes.awk
+index a5e6e5879..d42db1223 100755
+--- a/solenv/gbuild/platform/filter-showIncludes.awk
++++ b/solenv/gbuild/platform/filter-showIncludes.awk
+@@ -34,8 +34,11 @@ BEGIN {
+ 
+     # to match especially drive letters in allowlist case insensitive
+     IGNORECASE = 1
++    # srcdirlong/builddirlong: the same directories in long form, which cl.exe uses for headers found
++    # next to the source file when SRCDIR is an 8.3 short path (see gb_create_deps).
+     allowlist = \
+-        "^(" ENVIRON["SRCDIR"] "|" ENVIRON["BUILDDIR"] ")"
++        "^(" ENVIRON["SRCDIR"] "|" ENVIRON["BUILDDIR"] \
++        (srcdirlong ? "|" srcdirlong : "") (builddirlong ? "|" builddirlong : "") ")"
+     firstline = 1
+ }
+ 
