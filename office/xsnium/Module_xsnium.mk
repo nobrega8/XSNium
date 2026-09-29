@@ -19,6 +19,7 @@ $(eval $(call gb_Module_add_check_targets,xsnium,\
     CppunitTest_xsnium_manifest \
     CppunitTest_xsnium_package \
     CppunitTest_xsnium_schema \
+    CppunitTest_xsnium_view \
 ))
 
 # vim: set noet sw=4 ts=4:

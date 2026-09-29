@@ -52,6 +52,7 @@ enum class DiagnosticCategory
     Manifest,
     Schema,
     Security,
+    View,
 };
 
 struct Diagnostic
