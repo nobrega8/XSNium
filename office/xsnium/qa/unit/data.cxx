@@ -14,6 +14,7 @@
 #include <xsnium/manifest.hxx>
 #include <xsnium/schema.hxx>
 
+#include "sampleform.hxx"
 #include "testcab.hxx"
 
 #include <cppunit/TestAssert.h>
@@ -33,39 +34,6 @@ namespace
 {
 std::string s(const OUString& rText) { return OUStringToOString(rText, RTL_TEXTENCODING_UTF8).getStr(); }
 bool contains(const OUString& rText, std::u16string_view aPart) { return rText.indexOf(aPart) >= 0; }
-
-// --- the web app's sample form (tests/helpers/sample-form.ts) ---------------------------------------
-
-const std::string MY = "urn:example:my";
-
-const std::string SAMPLE_SCHEMA = R"(<xsd:schema targetNamespace="urn:example:my" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:my="urn:example:my"
-    elementFormDefault="qualified">
-  <xsd:element name="root"><xsd:complexType><xsd:sequence>
-    <xsd:element ref="my:title"/>
-    <xsd:element ref="my:note" minOccurs="0"/>
-    <xsd:element ref="my:items" minOccurs="0" maxOccurs="unbounded"/>
-    <xsd:element ref="my:limited" maxOccurs="2"/>
-    <xsd:element ref="my:late" minOccurs="0"/>
-  </xsd:sequence><xsd:attribute name="version" type="xsd:string" default="1"/></xsd:complexType></xsd:element>
-  <xsd:element name="title" type="xsd:string"/>
-  <xsd:element name="note" type="xsd:string" nillable="true"/>
-  <xsd:element name="items"><xsd:complexType><xsd:sequence>
-    <xsd:element name="name" type="xsd:string"/>
-    <xsd:element name="qty" type="xsd:integer" minOccurs="0"/>
-  </xsd:sequence><xsd:attribute name="id" type="xsd:string" use="required"/></xsd:complexType></xsd:element>
-  <xsd:element name="limited" type="xsd:string"/>
-  <xsd:element name="late" type="xsd:string"/>
-</xsd:schema>)";
-
-const std::string SAMPLE_TEMPLATE = R"(<?xml version="1.0" encoding="UTF-8"?>
-<?mso-infoPathSolution name="urn:example:form" href="manifest.xsf" solutionVersion="1.0.0.7" ?>
-<?mso-application progid="InfoPath.Document"?>
-<my:root xmlns:my="urn:example:my" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1">
-	<my:title>Hello</my:title>
-	<my:note xsi:nil="true"/>
-	<my:items id="a"><my:name>first</my:name><my:qty>2</my:qty></my:items>
-	<my:limited>x</my:limited>
-</my:root>)";
 
 const OUString ROOT = u"/my:root"_ustr;
 const OUString ITEMS = u"/my:root/my:items"_ustr;

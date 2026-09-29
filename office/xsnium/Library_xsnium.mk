@@ -31,6 +31,7 @@ $(eval $(call gb_Library_add_exception_objects,xsnium,\
     xsnium/source/data/datadocument \
     xsnium/source/data/datapath \
     xsnium/source/data/instance \
+    xsnium/source/form/build \
     xsnium/source/manifest/manifest \
     xsnium/source/package/cab \
     xsnium/source/package/xsnpackage \
