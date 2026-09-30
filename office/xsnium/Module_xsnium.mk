@@ -20,6 +20,7 @@ $(eval $(call gb_Module_add_check_targets,xsnium,\
     CppunitTest_xsnium_form \
     CppunitTest_xsnium_manifest \
     CppunitTest_xsnium_package \
+    CppunitTest_xsnium_render \
     CppunitTest_xsnium_runtime \
     CppunitTest_xsnium_schema \
     CppunitTest_xsnium_submit \
