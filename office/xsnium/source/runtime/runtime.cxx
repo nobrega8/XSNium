@@ -576,6 +576,144 @@ void FormRuntime::checkValue(const std::vector<const ValidationDefinition*>& rRu
     }
 }
 
+// --- pictures and attachments ----------------------------------------------------------------------------
+
+void FormRuntime::blobField(const OUString& rPath)
+{
+    const std::vector<DataNode> aNodes = m_rInstance.select(rPath);
+    if (aNodes.empty() || aNodes.front().kind != DataNodeKind::Element)
+        throw XsnError(ErrorCode::NodeNotFound,
+                       "No field at \"" + std::string(OUStringToOString(rPath, RTL_TEXTENCODING_UTF8)) + "\"");
+    const SchemaNode* pSchema = m_rInstance.schemaNodeOf(*aNodes.front().element);
+    if (!pSchema || !pSchema->type || pSchema->type->name != "base64Binary")
+        throw XsnError(ErrorCode::InvalidOperation, "This field does not hold a picture or file");
+}
+
+Outcome FormRuntime::setPicture(const OUString& rPath, const ByteVector& rBytes)
+{
+    blobField(rPath);
+    if (rBytes.size() > MAX_BLOB_BYTES)
+        throw XsnError(ErrorCode::LimitExceeded, "The picture is too large");
+    if (!sniffImage(rBytes))
+        throw XsnError(ErrorCode::InvalidOperation, "Choose a PNG, JPEG, GIF or BMP picture");
+    return setValue(rPath, encodeBase64(rBytes));
+}
+
+Outcome FormRuntime::setAttachment(const OUString& rPath, const OUString& rFileName, const ByteVector& rBytes)
+{
+    blobField(rPath);
+    Outcome aOutcome = setValue(rPath, encodeBase64(buildAttachment(rFileName, rBytes)));
+    // Required by the file format, and never removed once present.
+    m_rInstance.ensureInstruction(u"mso-infoPath-file-attachment-present"_ustr);
+    return aOutcome;
+}
+
+Outcome FormRuntime::clearBlob(const OUString& rPath)
+{
+    blobField(rPath);
+    return setValue(rPath, OUString());
+}
+
+BlobInfo FormRuntime::blobInfo(const OUString& rPath) { return describeBlob(m_rInstance.getValue(rPath).value_or(OUString())); }
+
+std::optional<BlobContent> FormRuntime::readBlob(const OUString& rPath)
+{
+    const std::optional<OUString> oText = m_rInstance.getValue(rPath);
+    if (!oText || oText->trim().isEmpty())
+        return std::nullopt;
+    ByteVector aBytes;
+    try
+    {
+        aBytes = decodeBase64(*oText);
+    }
+    catch (const XsnError&)
+    {
+        return std::nullopt;
+    }
+    BlobContent aContent;
+    if (const std::optional<ImageType> oImage = sniffImage(aBytes))
+    {
+        aContent.kind = BlobKind::Picture;
+        aContent.mime = imageMime(*oImage);
+        aContent.bytes = std::move(aBytes);
+        return aContent;
+    }
+    try
+    {
+        Attachment aAttachment = parseAttachment(aBytes);
+        aContent.kind = BlobKind::Attachment;
+        aContent.fileName = safeAttachmentName(aAttachment.fileName);
+        aContent.dangerous = isDangerousFileName(aAttachment.fileName);
+        aContent.bytes = std::move(aAttachment.bytes);
+        return aContent;
+    }
+    catch (const XsnError&)
+    {
+        return std::nullopt;
+    }
+}
+
+// --- submit ----------------------------------------------------------------------------------------------------
+
+EmailDraftResult FormRuntime::emailDraft(const std::optional<OUString>& rAdapter)
+{
+    const DataSourceDefinition* pSource = nullptr;
+    for (const DataSourceDefinition& rSource : m_rForm.dataSources)
+        if (rSource.kind == DataSourceKind::Connection && rSource.connection && rSource.connection->type == "email"
+            && rSource.connection->status == ConnectionStatus::Draft
+            && (!rAdapter || rAdapter->isEmpty() || rSource.connection->name == *rAdapter))
+        {
+            pSource = &rSource;
+            break;
+        }
+    const std::optional<ManifestEmail> oSpec
+        = pSource && m_aOptions.emailSettings ? m_aOptions.emailSettings(pSource->connection->name) : std::nullopt;
+    if (!pSource || !oSpec)
+    {
+        const std::string aTarget = rAdapter && !rAdapter->isEmpty()
+                                        ? " to \"" + std::string(OUStringToOString(*rAdapter, RTL_TEXTENCODING_UTF8)) + "\""
+                                        : std::string();
+        throw XsnError(ErrorCode::InvalidOperation,
+                       "Submitting" + aTarget + " is not supported: only an email submit can be prepared, as a draft file");
+    }
+
+    const XNode aRoot = elementNode(m_rInstance.root());
+    auto text = [&](const std::optional<ManifestValue>& rValue) -> OUString {
+        if (!rValue)
+            return OUString();
+        if (!rValue->expression)
+            return rValue->value;
+        try
+        {
+            return toStringValue(evaluate(rValue->value, aRoot));
+        }
+        catch (const XsnError&)
+        {
+            return OUString();
+        }
+    };
+    EmailDraftResult aResult;
+    auto list = [&](const std::optional<ManifestValue>& rValue) {
+        ParsedAddresses aAddresses = parseAddresses(text(rValue));
+        aResult.skipped += aAddresses.invalid;
+        return aAddresses.valid;
+    };
+    EmailDraft& rDraft = aResult.draft;
+    rDraft.to = list(oSpec->to);
+    rDraft.cc = list(oSpec->cc);
+    rDraft.bcc = list(oSpec->bcc);
+    rDraft.subject = text(oSpec->subject);
+    if (rDraft.subject.isEmpty())
+        rDraft.subject = m_rForm.name.isEmpty() ? u"Form"_ustr : m_rForm.name;
+    rDraft.intro = oSpec->intro.value_or(OUString());
+    rDraft.attachmentName = text(oSpec->attachmentFileName);
+    if (rDraft.attachmentName.isEmpty())
+        rDraft.attachmentName = u"form"_ustr;
+    const OString aXml = OUStringToOString(m_rInstance.toXml(), RTL_TEXTENCODING_UTF8);
+    rDraft.attachment.assign(aXml.getStr(), aXml.getStr() + aXml.getLength());
+    return aResult;
+}
+
 void FormRuntime::checkCustom(const ValidationDefinition& rRule, const DataNode& rNode, const OUString& rPath,
                               std::vector<ValidationIssue>& rIssues)
 {

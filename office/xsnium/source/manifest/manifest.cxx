@@ -364,6 +364,63 @@ ManifestReadResult readManifest(XsnPackage& rPackage)
             { DiagnosticLevel::Warning, DiagnosticCategory::Manifest, u"No root schema declared"_ustr });
     return aResult;
 }
+
+namespace
+{
+std::optional<ManifestValue> manifestValue(const XmlElement* pElement)
+{
+    const std::optional<OUString> oValue = pElement ? pElement->attr(u"value") : std::nullopt;
+    if (!oValue)
+        return std::nullopt;
+    return ManifestValue{ *oValue, pElement->attrOr(u"valueType").equalsIgnoreAsciiCase("expression") };
+}
+
+const XmlElement* childNamed(const XmlElement& rElement, std::u16string_view aLocal)
+{
+    for (const auto& pChild : rElement.children)
+        if (pChild->local == aLocal)
+            return pChild.get();
+    return nullptr;
+}
+
+ManifestEmail parseEmail(const XmlElement& rElement)
+{
+    ManifestEmail aEmail;
+    aEmail.to = manifestValue(childNamed(rElement, u"to"));
+    aEmail.cc = manifestValue(childNamed(rElement, u"cc"));
+    aEmail.bcc = manifestValue(childNamed(rElement, u"bcc"));
+    aEmail.subject = manifestValue(childNamed(rElement, u"subject"));
+    aEmail.attachmentFileName = manifestValue(childNamed(rElement, u"attachmentFileName"));
+    if (const XmlElement* pIntro = childNamed(rElement, u"intro"))
+        aEmail.intro = pIntro->attr(u"value");
+    return aEmail;
+}
+
+void collectEmailAdapters(const XmlElement& rElement, std::map<OUString, ManifestEmail>& rFound)
+{
+    if (adapterKind(rElement.local) == DataAdapterKind::Email && isAdapter(rElement) && yes(rElement.attr(u"submitAllowed")))
+        rFound[rElement.attrOr(u"name")] = parseEmail(rElement);
+    for (const auto& pChild : rElement.children)
+        collectEmailAdapters(*pChild, rFound);
+}
+}
+
+std::map<OUString, ManifestEmail> parseEmailSettings(const std::vector<sal_uInt8>& rXml)
+{
+    std::map<OUString, ManifestEmail> aFound;
+    const std::unique_ptr<XmlElement> pRoot = parseXml(rXml);
+    for (std::u16string_view aSection : { u"dataAdapters", u"submit" })
+        if (const XmlElement* pSection = pRoot->childOf(XSF, aSection))
+            collectEmailAdapters(*pSection, aFound);
+    return aFound;
+}
+
+std::map<OUString, ManifestEmail> readEmailSettings(XsnPackage& rPackage)
+{
+    if (!rPackage.manifest())
+        return {};
+    return parseEmailSettings(rPackage.read(*rPackage.manifest()));
+}
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

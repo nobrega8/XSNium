@@ -9,7 +9,9 @@
 
 #pragma once
 
+#include <xsnium/blobs.hxx>
 #include <xsnium/dllapi.hxx>
+#include <xsnium/eml.hxx>
 #include <xsnium/formdefinition.hxx>
 #include <xsnium/instance.hxx>
 #include <xsnium/xpath.hxx>
@@ -93,6 +95,30 @@ struct RuntimeOptions
 {
     /** Clock for the date functions. Default: the system clock. */
     std::function<LocalDateTime()> now;
+    /**
+     * Where to find the settings of an email submit adapter (recipients, subject). They are read on demand and
+     * never kept in the form model.
+     */
+    std::function<std::optional<ManifestEmail>(const OUString&)> emailSettings;
+};
+
+struct EmailDraftResult
+{
+    EmailDraft draft;
+    /** Recipients left out because they were not well-formed addresses. */
+    size_t skipped = 0;
+};
+
+/** The content of a binary field, ready to be shown or saved. */
+struct BlobContent
+{
+    /** Picture or Attachment. */
+    BlobKind kind = BlobKind::Picture;
+    OUString mime;
+    /** Attachment: the sanitised name, and whether its type is one that must not be opened. */
+    OUString fileName;
+    bool dangerous = false;
+    ByteVector bytes;
 };
 
 class XSNIUM_DLLPUBLIC FormRuntime
@@ -137,7 +163,28 @@ public:
     /** Check the data against the schema's rules and the template's own conditions. */
     std::vector<ValidationIssue> validate();
 
+    // --- pictures and attachments
+
+    /** Store a picture. Only raster images that are safe to show are accepted. */
+    Outcome setPicture(const OUString& rPath, const ByteVector& rBytes);
+    /** Attach a file, in the structure InfoPath uses. Programs and scripts are refused. */
+    Outcome setAttachment(const OUString& rPath, const OUString& rFileName, const ByteVector& rBytes);
+    Outcome clearBlob(const OUString& rPath);
+    /** What a binary field holds, without the bytes. */
+    BlobInfo blobInfo(const OUString& rPath);
+    /** The content of a binary field; nothing when there is nothing safe to offer. */
+    std::optional<BlobContent> readBlob(const OUString& rPath);
+
+    // --- submit
+
+    /**
+     * Prepare the draft email for a submit adapter. Nothing is sent: the caller saves the message as a file.
+     * Without an adapter name the form's first email submit is used. Throws InvalidOperation otherwise.
+     */
+    EmailDraftResult emailDraft(const std::optional<OUString>& rAdapter = std::nullopt);
+
 private:
+    void blobField(const OUString& rPath);
     XPathEnv env() const;
     XValue evaluate(const OUString& rExpression, const XNode& rNode) const;
     OUString pathOf(const DataNode& rNode) const;

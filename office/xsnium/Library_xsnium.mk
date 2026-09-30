@@ -31,6 +31,7 @@ $(eval $(call gb_Library_use_externals,xsnium,\
 ))
 
 $(eval $(call gb_Library_add_exception_objects,xsnium,\
+    xsnium/source/data/blobs \
     xsnium/source/data/datadocument \
     xsnium/source/data/datapath \
     xsnium/source/data/instance \
@@ -41,6 +42,7 @@ $(eval $(call gb_Library_add_exception_objects,xsnium,\
     xsnium/source/runtime/runtime \
     xsnium/source/runtime/validate \
     xsnium/source/schema/schema \
+    xsnium/source/submit/eml \
     xsnium/source/view/presentation \
     xsnium/source/view/style \
     xsnium/source/view/viewparser \

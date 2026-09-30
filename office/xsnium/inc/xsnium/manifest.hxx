@@ -101,6 +101,28 @@ struct ManifestDataAdapter
     std::optional<OUString> dataObject;
 };
 
+/** A setting that is either literal text or an expression evaluated against the form data. */
+struct ManifestValue
+{
+    OUString value;
+    bool expression = false;
+};
+
+/**
+ * How an email adapter addresses and describes the message. The recipients come from the template, so this is
+ * deliberately not part of ManifestModel: it is read on demand (see readEmailSettings) and never kept, printed
+ * or shown.
+ */
+struct ManifestEmail
+{
+    std::optional<ManifestValue> to;
+    std::optional<ManifestValue> cc;
+    std::optional<ManifestValue> bcc;
+    std::optional<ManifestValue> subject;
+    std::optional<OUString> intro;
+    std::optional<ManifestValue> attachmentFileName;
+};
+
 /** A secondary data source (xsf:dataObject). Its query is never run; only its shape is known. */
 struct ManifestDataObject
 {
@@ -216,6 +238,11 @@ struct ManifestReadResult
 
 /** Parse the package's manifest and check that everything it references is present. */
 XSNIUM_DLLPUBLIC ManifestReadResult readManifest(XsnPackage& rPackage);
+
+/** Settings of the email adapters that can submit, by adapter name. Read when a draft is made, never kept. */
+XSNIUM_DLLPUBLIC std::map<OUString, ManifestEmail> parseEmailSettings(const std::vector<sal_uInt8>& rXml);
+/** The settings of the package's email submit adapters, by name. The caller must not log or display them. */
+XSNIUM_DLLPUBLIC std::map<OUString, ManifestEmail> readEmailSettings(XsnPackage& rPackage);
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
