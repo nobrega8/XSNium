@@ -9,6 +9,8 @@
 
 #include "layout.hxx"
 
+#include "icons.hxx"
+
 #include <xsnium/blobs.hxx>
 #include <xsnium/cascade.hxx>
 #include <xsnium/xpath.hxx>
@@ -21,6 +23,7 @@
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/beans/XPropertySetInfo.hpp>
 #include <com/sun/star/container/XNameAccess.hpp>
+#include <com/sun/star/drawing/TextVerticalAdjust.hpp>
 #include <com/sun/star/drawing/XControlShape.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
@@ -37,6 +40,7 @@
 #include <com/sun/star/text/XText.hpp>
 #include <com/sun/star/text/XTextContent.hpp>
 #include <com/sun/star/text/XTextCursor.hpp>
+#include <com/sun/star/text/XTextFrame.hpp>
 #include <com/sun/star/text/XTextTable.hpp>
 #include <com/sun/star/text/XTextTableCursor.hpp>
 #include <com/sun/star/graphic/GraphicProvider.hpp>
@@ -69,6 +73,8 @@ constexpr double DEFAULT_VIEW_WIDTH_PX = 650;
 constexpr double TEXTAREA_HEIGHT_PX = 60;
 /** Characters of a label height, a crude but stable measure for sizing buttons. */
 constexpr double CHAR_WIDTH_EM = 0.6;
+/** InfoPath's grey for the prompt of an empty field. */
+constexpr sal_Int32 GHOSTED_COLOUR = 0x808080;
 
 sal_Int32 px(double f) { return static_cast<sal_Int32>(std::lround(f * MM100_PER_PX)); }
 
@@ -275,6 +281,9 @@ std::optional<table::BorderLine2> border(const ComputedStyle& rStyle, std::u16st
     const OUString aPrefix = "border-" + OUString(aSide);
     const OUString* pStyle = find(rStyle, OUString(aPrefix + "-style"));
     if (!pStyle || *pStyle == "none" || *pStyle == "hidden")
+        return std::nullopt;
+    // InfoPath gives sections "1pt solid transparent": a border that takes space but is not seen.
+    if (const OUString* pColour = find(rStyle, OUString(aPrefix + "-color")); pColour && pColour->equalsIgnoreAsciiCase("transparent"))
         return std::nullopt;
     const OUString* pWidth = find(rStyle, OUString(aPrefix + "-width"));
     const double fWidth = pWidth ? length(*pWidth, 0).value_or(3 * MM100_PER_PX) : 3 * MM100_PER_PX;
@@ -547,6 +556,9 @@ private:
             case ControlType::Image:
                 picture(rNode, rStyle, rTarget);
                 return;
+            case ControlType::Placeholder:
+                placeholder(rNode, rStyle, rTarget);
+                return;
             case ControlType::FileAttachment:
                 text(rTarget, rNode.blob && rNode.blob->kind == BlobKind::Attachment ? rNode.blob->fileName : OUString(), charFormatOf(rStyle));
                 return;
@@ -652,24 +664,41 @@ private:
         collectRows(rTableNode.children, aRows);
         if (aRows.empty())
             return;
-        std::vector<std::vector<std::pair<const RenderNode*, sal_Int32>>> aGrid;
-        sal_Int32 nColumns = 1;
-        for (const RenderNode* pRow : aRows)
+        // Place every cell as a browser does: in the first free slot of its row, taking its columns and rows.
+        struct Placed
         {
-            std::vector<std::pair<const RenderNode*, sal_Int32>> aCells;
-            sal_Int32 nWidth = 0;
-            for (const RenderNode& rCell : pRow->children)
+            const RenderNode* cell;
+            sal_Int32 row;
+            sal_Int32 column;
+            sal_Int32 columns;
+            sal_Int32 rows;
+        };
+        constexpr sal_Int32 MAX_COLUMNS = 64;
+        const sal_Int32 nRowCount = static_cast<sal_Int32>(aRows.size());
+        std::vector<std::vector<bool>> aTaken(nRowCount, std::vector<bool>(MAX_COLUMNS, false));
+        std::vector<Placed> aPlaced;
+        sal_Int32 nColumns = 1;
+        for (sal_Int32 nRow = 0; nRow < nRowCount; ++nRow)
+        {
+            sal_Int32 nColumn = 0;
+            for (const RenderNode& rCell : aRows[nRow]->children)
             {
                 if (rCell.type != ControlType::LayoutCell)
                     continue;
-                const sal_Int32 nSpan = std::clamp<sal_Int32>(rCell.properties ? rCell.properties->colSpan : 1, 1, 64);
-                aCells.emplace_back(&rCell, nSpan);
-                nWidth += nSpan;
+                while (nColumn < MAX_COLUMNS && aTaken[nRow][nColumn])
+                    ++nColumn;
+                if (nColumn >= MAX_COLUMNS)
+                    break;
+                const sal_Int32 nSpan = std::clamp<sal_Int32>(rCell.properties ? rCell.properties->colSpan : 1, 1, MAX_COLUMNS - nColumn);
+                const sal_Int32 nRowSpan = std::clamp<sal_Int32>(rCell.properties ? rCell.properties->rowSpan : 1, 1, nRowCount - nRow);
+                for (sal_Int32 r = nRow; r < nRow + nRowSpan; ++r)
+                    for (sal_Int32 c = nColumn; c < nColumn + nSpan; ++c)
+                        aTaken[r][c] = true;
+                aPlaced.push_back({ &rCell, nRow, nColumn, nSpan, nRowSpan });
+                nColumns = std::max(nColumns, nColumn + nSpan);
+                nColumn += nSpan;
             }
-            nColumns = std::max(nColumns, nWidth);
-            aGrid.push_back(std::move(aCells));
         }
-        nColumns = std::min<sal_Int32>(nColumns, 64);
 
         // The table's width: its own, else the sum of its columns, else all there is.
         std::vector<double> aColumnWidths(nColumns, 0);
@@ -707,7 +736,7 @@ private:
             fColumnsSum = fTableWidth;
 
         uno::Reference<text::XTextTable> xTable(m_xFactory->createInstance(u"com.sun.star.text.TextTable"_ustr), uno::UNO_QUERY_THROW);
-        xTable->initialize(static_cast<sal_Int32>(aGrid.size()), nColumns);
+        xTable->initialize(nRowCount, nColumns);
         flushBreak(rTarget);
         rTarget.text->insertTextContent(rTarget.cursor, xTable, false);
         rTarget.paragraphUsed = false;
@@ -744,67 +773,65 @@ private:
 
         // Writer draws borders on new cells; a view draws none unless its styles say so. Every cell is cleared,
         // including those a span merges away, whose borders would otherwise survive the merge.
-        for (size_t nRow = 0; nRow < aGrid.size(); ++nRow)
+        for (sal_Int32 nRow = 0; nRow < nRowCount; ++nRow)
             for (sal_Int32 nColumn = 0; nColumn < nColumns; ++nColumn)
             {
-                uno::Reference<beans::XPropertySet> xCell(xTable->getCellByName(cellName(nColumn, static_cast<sal_Int32>(nRow))), uno::UNO_QUERY);
+                uno::Reference<beans::XPropertySet> xCell(xTable->getCellByName(cellName(nColumn, nRow)), uno::UNO_QUERY);
                 for (const OUString& rBorder : { u"TopBorder"_ustr, u"RightBorder"_ustr, u"BottomBorder"_ustr, u"LeftBorder"_ustr })
                     setIfPresent(xCell, rBorder, uno::Any(table::BorderLine2()));
             }
 
+        // Row heights are minimums, as in the view.
         uno::Reference<table::XTableRows> xRows = xTable->getRows();
-        for (size_t nRow = 0; nRow < aGrid.size(); ++nRow)
+        for (sal_Int32 nRow = 0; nRow < nRowCount; ++nRow)
         {
-            // Row heights are minimums, as in the view.
             const ComputedStyle& rRowStyle = m_aCascade.of(*aRows[nRow]);
             std::optional<double> oHeight = lengthOf(rRowStyle, u"height", 0);
             if (!oHeight)
                 oHeight = lengthOf(rRowStyle, u"min-height", 0);
-            uno::Reference<beans::XPropertySet> xRow(xRows->getByIndex(static_cast<sal_Int32>(nRow)), uno::UNO_QUERY);
+            uno::Reference<beans::XPropertySet> xRow(xRows->getByIndex(nRow), uno::UNO_QUERY);
             if (xRow.is())
             {
                 setIfPresent(xRow, u"IsAutoHeight"_ustr, uno::Any(true));
                 setIfPresent(xRow, u"Height"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(oHeight.value_or(0)))));
             }
-
-            sal_Int32 nColumn = 0;
-            for (const auto& [pCell, nSpan] : aGrid[nRow])
-            {
-                if (nColumn >= nColumns)
-                    break;
-                double fCellWidth = 0;
-                for (sal_Int32 i = nColumn; i < std::min(nColumn + nSpan, nColumns); ++i)
-                    fCellWidth += aColumnWidths[i] / fColumnsSum * fTableWidth;
-                cell(xTable, *pCell, cellName(nColumn, static_cast<sal_Int32>(nRow)), fCellWidth);
-                nColumn += nSpan;
-            }
         }
-        // Merge spanned cells, right to left, so the names of the cells still to merge do not change.
-        for (size_t nRow = 0; nRow < aGrid.size(); ++nRow)
+
+        for (const Placed& rPlaced : aPlaced)
         {
-            std::vector<std::pair<sal_Int32, sal_Int32>> aMerges;
-            sal_Int32 nColumn = 0;
-            for (const auto& [pCell, nSpan] : aGrid[nRow])
-            {
-                const sal_Int32 nLast = std::min(nColumn + nSpan, nColumns) - 1;
-                if (nLast > nColumn)
-                    aMerges.emplace_back(nColumn, nLast - nColumn);
-                nColumn += nSpan;
-            }
-            for (auto it = aMerges.rbegin(); it != aMerges.rend(); ++it)
-            {
-                uno::Reference<text::XTextTableCursor> xCursor = xTable->createCursorByCellName(cellName(it->first, static_cast<sal_Int32>(nRow)));
-                xCursor->goRight(static_cast<sal_Int16>(it->second), true);
+            double fCellWidth = 0;
+            for (sal_Int32 i = rPlaced.column; i < std::min(rPlaced.column + rPlaced.columns, nColumns); ++i)
+                fCellWidth += aColumnWidths[i] / fColumnsSum * fTableWidth;
+            cell(xTable, *rPlaced.cell, *aRows[rPlaced.row], cellName(rPlaced.column, rPlaced.row), fCellWidth);
+        }
+
+        // Merge spanned cells. A merge only renames the cells to its right in its rows, so merging from the
+        // rightmost column leftwards keeps the names of the cells still to merge.
+        std::vector<const Placed*> aMerges;
+        for (const Placed& rPlaced : aPlaced)
+            if (rPlaced.columns > 1 || rPlaced.rows > 1)
+                aMerges.push_back(&rPlaced);
+        std::stable_sort(aMerges.begin(), aMerges.end(),
+                         [](const Placed* pA, const Placed* pB) { return pA->column > pB->column; });
+        for (const Placed* pMerge : aMerges)
+        {
+            const sal_Int32 nLastColumn = std::min(pMerge->column + pMerge->columns, nColumns) - 1;
+            uno::Reference<text::XTextTableCursor> xCursor = xTable->createCursorByCellName(cellName(pMerge->column, pMerge->row));
+            if (xCursor->gotoCellByName(cellName(nLastColumn, pMerge->row + pMerge->rows - 1), true))
                 xCursor->mergeRange();
-            }
         }
     }
 
-    void cell(const uno::Reference<text::XTextTable>& rTable, const RenderNode& rCell, const OUString& rName, double fWidth)
+    void cell(const uno::Reference<text::XTextTable>& rTable, const RenderNode& rCell, const RenderNode& rRow, const OUString& rName,
+              double fWidth)
     {
         const ComputedStyle& rStyle = m_aCascade.of(rCell);
         uno::Reference<beans::XPropertySet> xCell(rTable->getCellByName(rName), uno::UNO_QUERY_THROW);
-        if (std::optional<sal_Int32> oBackground = colourOf(rStyle, u"background-color"))
+        // A row's background (or its tbody's, passed down to the row) shows through cells that have none.
+        std::optional<sal_Int32> oBackground = colourOf(rStyle, u"background-color");
+        if (!oBackground)
+            oBackground = colourOf(m_aCascade.of(rRow), u"background-color");
+        if (oBackground)
         {
             setIfPresent(xCell, u"BackColor"_ustr, uno::Any(*oBackground));
             setIfPresent(xCell, u"BackTransparent"_ustr, uno::Any(false));
@@ -847,44 +874,138 @@ private:
         finish(aCell);
     }
 
+    // --- "click to add" areas ----------------------------------------------------------------------
+
+    /**
+     * An area that inserts an optional section or a row, as InfoPath draws it: a block of its own with a small
+     * icon at the left edge and its text after the stylesheet's left padding.
+     */
+    void placeholder(const RenderNode& rNode, const ComputedStyle& rStyle, Target& rTarget)
+    {
+        const ParaFormat aOuter = rTarget.para;
+        ParaFormat aInner = aOuter;
+        if (const OUString* pAlign = find(rStyle, u"text-align"))
+            aInner.adjust = *pAlign == "center" ? style::ParagraphAdjust_CENTER
+                            : *pAlign == "right" ? style::ParagraphAdjust_RIGHT
+                                                 : style::ParagraphAdjust_LEFT;
+        rTarget.pendingBreak = true;
+        rTarget.para = aInner;
+        flushBreak(rTarget);
+        if (!rTarget.paragraphUsed)
+            applyParagraph(rTarget);
+
+        const bool bRow = rNode.properties && rNode.properties->action
+                          && rNode.properties->action->indexOf("xCollection") >= 0;
+        const std::vector<sal_uInt8> aIcon = bRow ? std::vector<sal_uInt8>(std::begin(INSERT_ROW_ICON), std::end(INSERT_ROW_ICON))
+                                                  : std::vector<sal_uInt8>(std::begin(INSERT_SECTION_ICON), std::end(INSERT_SECTION_ICON));
+        const double fPadding = lengthOf(rStyle, u"padding-left", rTarget.width).value_or(20 * MM100_PER_PX);
+        if (uno::Reference<graphic::XGraphic> xIcon = graphicOf(aIcon))
+            insertGraphic(xIcon, px(11), px(11), rTarget, std::max(0.0, fPadding - px(11)));
+        text(rTarget, rNode.label.value_or(OUString()), charFormatOf(rStyle));
+
+        rTarget.para = aOuter;
+        rTarget.pendingBreak = true;
+    }
+
     // --- pictures -------------------------------------------------------------------------------------
+
+    /** A picture from its bytes; only the raster formats that are safe to decode reach the image filters. */
+    static uno::Reference<graphic::XGraphic> graphicOf(const std::vector<sal_uInt8>& rBytes)
+    {
+        if (!sniffImage(rBytes))
+            return nullptr;
+        uno::Reference<graphic::XGraphicProvider> xProvider = graphic::GraphicProvider::create(comphelper::getProcessComponentContext());
+        const uno::Sequence<sal_Int8> aData(reinterpret_cast<const sal_Int8*>(rBytes.data()), static_cast<sal_Int32>(rBytes.size()));
+        uno::Reference<io::XInputStream> xStream(new comphelper::SequenceInputStream(aData));
+        return xProvider->queryGraphic({ comphelper::makePropertyValue(u"InputStream"_ustr, xStream) });
+    }
+
+    /** Put a picture in the text, as a character, with an optional gap after it. */
+    void insertGraphic(const uno::Reference<graphic::XGraphic>& rGraphic, double fWidth, double fHeight, Target& rTarget,
+                       double fGapAfter = 0)
+    {
+        uno::Reference<beans::XPropertySet> xImage(m_xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr), uno::UNO_QUERY_THROW);
+        xImage->setPropertyValue(u"Graphic"_ustr, uno::Any(rGraphic));
+        xImage->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
+        setIfPresent(xImage, u"Width"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(std::max(1.0, fWidth)))));
+        setIfPresent(xImage, u"Height"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(std::max(1.0, fHeight)))));
+        setIfPresent(xImage, u"RightMargin"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(fGapAfter))));
+        // Pictures are centred on the text line, as the icons and logos of a view sit in IE.
+        setIfPresent(xImage, u"VertOrient"_ustr, uno::Any(text::VertOrientation::LINE_CENTER));
+        // No frame around the picture: a view's pictures have none unless their style draws one.
+        for (const OUString& rBorder : { u"TopBorder"_ustr, u"RightBorder"_ustr, u"BottomBorder"_ustr, u"LeftBorder"_ustr })
+            setIfPresent(xImage, rBorder, uno::Any(table::BorderLine2()));
+        flushBreak(rTarget);
+        rTarget.text->insertTextContent(rTarget.cursor, uno::Reference<text::XTextContent>(xImage, uno::UNO_QUERY_THROW), false);
+        rTarget.paragraphUsed = true;
+    }
 
     void picture(const RenderNode& rNode, const ComputedStyle& rStyle, Target& rTarget)
     {
         if (!m_rPictures)
             return;
         const std::optional<std::vector<sal_uInt8>> oBytes = m_rPictures(rNode);
-        // Only the raster formats that are safe to decode; nothing else reaches the image filters.
-        if (!oBytes || !sniffImage(*oBytes))
+        if (!oBytes)
             return;
-        uno::Reference<graphic::XGraphicProvider> xProvider = graphic::GraphicProvider::create(comphelper::getProcessComponentContext());
-        const uno::Sequence<sal_Int8> aData(reinterpret_cast<const sal_Int8*>(oBytes->data()), static_cast<sal_Int32>(oBytes->size()));
-        uno::Reference<io::XInputStream> xStream(new comphelper::SequenceInputStream(aData));
-        uno::Reference<graphic::XGraphic> xGraphic
-            = xProvider->queryGraphic({ comphelper::makePropertyValue(u"InputStream"_ustr, xStream) });
+        uno::Reference<graphic::XGraphic> xGraphic = graphicOf(*oBytes);
         if (!xGraphic.is())
             return;
-
-        // The size the view gives, else the picture's own, keeping its proportions when only one side is given.
         awt::Size aPixels(0, 0);
         uno::Reference<beans::XPropertySet>(xGraphic, uno::UNO_QUERY_THROW)->getPropertyValue(u"SizePixel"_ustr) >>= aPixels;
+
+        if (rNode.properties && rNode.properties->ink)
+        {
+            inkArea(xGraphic, aPixels, rStyle, rTarget);
+            return;
+        }
+
+        // The size the view gives, else the picture's own, keeping its proportions when only one side is given.
         std::optional<double> oWidth = lengthOf(rStyle, u"width", rTarget.width);
         std::optional<double> oHeight = lengthOf(rStyle, u"height", 0);
         if (!oWidth && oHeight && aPixels.Height > 0)
             oWidth = *oHeight * aPixels.Width / aPixels.Height;
         if (!oHeight && oWidth && aPixels.Width > 0)
             oHeight = *oWidth * aPixels.Height / aPixels.Width;
-        const sal_Int32 nWidth = static_cast<sal_Int32>(std::lround(std::max(1.0, oWidth.value_or(px(aPixels.Width)))));
-        const sal_Int32 nHeight = static_cast<sal_Int32>(std::lround(std::max(1.0, oHeight.value_or(px(aPixels.Height)))));
+        insertGraphic(xGraphic, oWidth.value_or(px(aPixels.Width)), oHeight.value_or(px(aPixels.Height)), rTarget);
+    }
 
-        uno::Reference<beans::XPropertySet> xImage(m_xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr), uno::UNO_QUERY_THROW);
-        xImage->setPropertyValue(u"Graphic"_ustr, uno::Any(xGraphic));
-        xImage->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
-        setIfPresent(xImage, u"Width"_ustr, uno::Any(nWidth));
-        setIfPresent(xImage, u"Height"_ustr, uno::Any(nHeight));
+    /**
+     * An ink area (a signature box): the box the view gives, with its border and a white ground, and the
+     * background picture at its own size in the top left corner, as InfoPath draws it.
+     */
+    void inkArea(const uno::Reference<graphic::XGraphic>& rGraphic, const awt::Size& rPixels, const ComputedStyle& rStyle,
+                 Target& rTarget)
+    {
+        const double fWidth = lengthOf(rStyle, u"width", rTarget.width).value_or(px(rPixels.Width));
+        const double fHeight = lengthOf(rStyle, u"height", 0).value_or(px(rPixels.Height));
+
+        uno::Reference<beans::XPropertySet> xFrame(m_xFactory->createInstance(u"com.sun.star.text.TextFrame"_ustr), uno::UNO_QUERY_THROW);
+        xFrame->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
+        setIfPresent(xFrame, u"SizeType"_ustr, uno::Any(sal_Int16(1))); // SizeType::FIX
+        setIfPresent(xFrame, u"WidthType"_ustr, uno::Any(sal_Int16(1)));
+        setIfPresent(xFrame, u"Width"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(std::max(1.0, fWidth)))));
+        setIfPresent(xFrame, u"Height"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(std::max(1.0, fHeight)))));
+        setIfPresent(xFrame, u"VertOrient"_ustr, uno::Any(text::VertOrientation::LINE_CENTER));
+        setIfPresent(xFrame, u"TextVerticalAdjust"_ustr, uno::Any(drawing::TextVerticalAdjust_TOP));
+        setIfPresent(xFrame, u"BackColor"_ustr, uno::Any(colourOf(rStyle, u"background-color").value_or(sal_Int32(0xFFFFFF))));
+        setIfPresent(xFrame, u"BackTransparent"_ustr, uno::Any(false));
+        static constexpr std::u16string_view SIDES[] = { u"top", u"right", u"bottom", u"left" };
+        static const OUString BORDERS[] = { u"TopBorder"_ustr, u"RightBorder"_ustr, u"BottomBorder"_ustr, u"LeftBorder"_ustr };
+        static const OUString DISTANCES[] = { u"TopBorderDistance"_ustr, u"RightBorderDistance"_ustr, u"BottomBorderDistance"_ustr, u"LeftBorderDistance"_ustr };
+        static const OUString MARGINS[] = { u"TopMargin"_ustr, u"RightMargin"_ustr, u"BottomMargin"_ustr, u"LeftMargin"_ustr };
+        for (int i = 0; i < 4; ++i)
+        {
+            setIfPresent(xFrame, BORDERS[i], uno::Any(border(rStyle, SIDES[i]).value_or(table::BorderLine2())));
+            setIfPresent(xFrame, DISTANCES[i], uno::Any(sal_Int32(0)));
+            setIfPresent(xFrame, MARGINS[i], uno::Any(sal_Int32(0)));
+        }
         flushBreak(rTarget);
-        rTarget.text->insertTextContent(rTarget.cursor, uno::Reference<text::XTextContent>(xImage, uno::UNO_QUERY_THROW), false);
+        rTarget.text->insertTextContent(rTarget.cursor, uno::Reference<text::XTextContent>(xFrame, uno::UNO_QUERY_THROW), false);
         rTarget.paragraphUsed = true;
+
+        uno::Reference<text::XText> xInside = uno::Reference<text::XTextFrame>(xFrame, uno::UNO_QUERY_THROW)->getText();
+        Target aInside{ xInside, xInside->createTextCursor(), fWidth };
+        insertGraphic(rGraphic, px(rPixels.Width), px(rPixels.Height), aInside);
     }
 
     // --- controls -------------------------------------------------------------------------------------
@@ -896,8 +1017,12 @@ private:
         const double fEm = aFont.height * MM100_PER_PT;
         OUString aService;
         double fWidth = 5000;
-        // A text box as InfoPath draws it: a line of the field's font (1.2 em), 1px padding and a 1pt border each side.
-        double fHeight = fEm * 1.2 + 2 * MM100_PER_PX + 2 * MM100_PER_PT;
+        // A text box as InfoPath draws it: a line of the field's font (1.2 em), 1px padding and its border each side
+        // (none where the view gives no border style).
+        const std::optional<table::BorderLine2> oTopBorder = border(rStyle, u"top");
+        const std::optional<table::BorderLine2> oBottomBorder = border(rStyle, u"bottom");
+        const double fBorders = (oTopBorder ? oTopBorder->LineWidth : 0) + (oBottomBorder ? oBottomBorder->LineWidth : 0);
+        double fHeight = fEm * 1.2 + 2 * MM100_PER_PX + fBorders;
         switch (rNode.type)
         {
             case ControlType::Text:
@@ -907,7 +1032,9 @@ private:
                 break;
             case ControlType::TextArea:
                 aService = u"com.sun.star.form.component.TextField"_ustr;
-                fHeight = px(TEXTAREA_HEIGHT_PX);
+                // A rich text box with no height of its own is one line that grows with its content.
+                if (!(pProps && pProps->rich))
+                    fHeight = px(TEXTAREA_HEIGHT_PX);
                 break;
             case ControlType::Date:
                 aService = u"com.sun.star.form.component.DateField"_ustr;
@@ -963,10 +1090,10 @@ private:
         if (rNode.type != ControlType::Button && rNode.type != ControlType::Placeholder && rNode.type != ControlType::Checkbox
             && rNode.type != ControlType::Radio)
         {
-            if (std::optional<table::BorderLine2> oLine = border(rStyle, u"top"))
+            if (oTopBorder)
             {
                 setIfPresent(xModel, u"Border"_ustr, uno::Any(sal_Int16(2)));
-                setIfPresent(xModel, u"BorderColor"_ustr, uno::Any(oLine->Color));
+                setIfPresent(xModel, u"BorderColor"_ustr, uno::Any(oTopBorder->Color));
             }
             else if (find(rStyle, u"border-top-style"))
                 setIfPresent(xModel, u"Border"_ustr, uno::Any(sal_Int16(0)));
@@ -1028,7 +1155,14 @@ private:
                 setIfPresent(xModel, u"Label"_ustr, uno::Any(rNode.label.value_or(u"Insert"_ustr)));
                 break;
             default:
-                setIfPresent(xModel, u"Text"_ustr, uno::Any(displayValue(aValue, pProps ? pProps->format : std::nullopt)));
+                // An empty field shows its prompt in grey, as InfoPath's ghosted text.
+                if (aValue.isEmpty() && pProps && pProps->prompt && !pProps->prompt->isEmpty())
+                {
+                    setIfPresent(xModel, u"Text"_ustr, uno::Any(*pProps->prompt));
+                    setIfPresent(xModel, u"TextColor"_ustr, uno::Any(GHOSTED_COLOUR));
+                }
+                else
+                    setIfPresent(xModel, u"Text"_ustr, uno::Any(displayValue(aValue, pProps ? pProps->format : std::nullopt)));
                 if (rNode.type == ControlType::TextArea)
                     setIfPresent(xModel, u"MultiLine"_ustr, uno::Any(true));
                 break;
@@ -1037,8 +1171,12 @@ private:
         uno::Reference<drawing::XControlShape> xShape(m_xFactory->createInstance(u"com.sun.star.drawing.ControlShape"_ustr), uno::UNO_QUERY_THROW);
         xShape->setSize(awt::Size(static_cast<sal_Int32>(std::lround(fWidth)), static_cast<sal_Int32>(std::lround(fHeight))));
         xShape->setControl(uno::Reference<awt::XControlModel>(xModel, uno::UNO_QUERY_THROW));
-        uno::Reference<beans::XPropertySet>(xShape, uno::UNO_QUERY_THROW)
-            ->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
+        uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY_THROW);
+        xShapeProps->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
+        // A field's own text sits on the line's baseline in IE, so the box straddles the line rather than
+        // standing on it and making the line taller.
+        if (rNode.type != ControlType::Checkbox && rNode.type != ControlType::Radio)
+            setIfPresent(xShapeProps, u"VertOrient"_ustr, uno::Any(text::VertOrientation::CHAR_CENTER));
         flushBreak(rTarget);
         rTarget.text->insertTextContent(rTarget.cursor, uno::Reference<text::XTextContent>(xShape, uno::UNO_QUERY_THROW), false);
         rTarget.paragraphUsed = true;

@@ -678,7 +678,8 @@ private:
     void walkHtml(const XmlElement& rElement, const OUString& rCtx, Controls& rOut, Frame& rFrame, sal_Int32 nDepth)
     {
         const OUString aTag = rElement.local.toAsciiLowerCase();
-        if (isSkippedTag(aTag))
+        // An <object> is skipped unless it is a control the view names (an ink picture, say); nothing in it is run.
+        if (isSkippedTag(aTag) && !(aTag == "object" && xdAttr(rElement, u"xctname")))
             return;
         if (rElement.attrOr(u"class").toAsciiLowerCase().indexOf("optionalplaceholder") >= 0)
         {
@@ -695,6 +696,9 @@ private:
             ControlDefinition aPlaceholder = make(ControlType::Placeholder);
             if (oXmlToEdit && !oXmlToEdit->isEmpty())
                 aPlaceholder.properties.xmlToEdit = oXmlToEdit;
+            // xCollection::insert adds a row; without an action it inserts an optional section.
+            if (const std::optional<OUString> oAction = xdAttr(rElement, u"action"); oAction && !oAction->isEmpty())
+                aPlaceholder.properties.action = oAction;
             if (!aLabel.isEmpty())
                 aPlaceholder.label = aLabel;
             aPlaceholder.presentation = presentationOf(rElement, aOptions);
@@ -820,9 +824,56 @@ private:
                 if (aTag == "tr")
                     rRows.push_back(row(rChild, rCtx, nDepth));
                 else if (aTag == "thead" || aTag == "tbody" || aTag == "tfoot")
+                {
+                    const size_t nFirst = rRows.size();
                     tableRows(rChild, rCtx, rRows, nDepth);
+                    // A row group's look (a header's class and fill, say) belongs to each of its rows.
+                    if (const std::optional<Presentation> oGroup = presentationOf(rChild))
+                        for (size_t i = nFirst; i < rRows.size(); ++i)
+                            inheritGroupLook(rRows[i], *oGroup);
+                }
             }
         }
+    }
+
+    /** Give a row the class and style of the row group (tbody, thead) it sits in; the row's own look wins. */
+    static void inheritGroupLook(ControlDefinition& rRow, const Presentation& rGroup)
+    {
+        if (rRow.type != ControlType::LayoutRow)
+            return;
+        Presentation& rLook = rRow.presentation ? *rRow.presentation : rRow.presentation.emplace();
+        if (rGroup.className)
+            rLook.className = rLook.className ? *rGroup.className + " " + *rLook.className : *rGroup.className;
+        if (rGroup.style)
+        {
+            Declarations aStyle = *rGroup.style;
+            if (rLook.style)
+                for (const auto& [rProperty, rValue] : *rLook.style)
+                    setDeclaration(aStyle, rProperty, rValue);
+            rLook.style = std::move(aStyle);
+        }
+    }
+
+    /**
+     * The prompt a field shows while it is empty: InfoPath writes it inside the field, in the xsl:when that marks the
+     * field xd:ghosted.
+     */
+    static std::optional<OUString> ghostedText(const XmlElement& rElement)
+    {
+        for (const auto& pChild : rElement.children)
+        {
+            if (isXsl(*pChild, u"when"))
+                for (const auto& pInner : pChild->children)
+                    if (isXsl(*pInner, u"attribute") && pInner->attrOr(u"name") == "xd:ghosted")
+                    {
+                        const OUString aText = normalise(pChild->text);
+                        if (!aText.isEmpty())
+                            return aText;
+                    }
+            if (std::optional<OUString> oFound = ghostedText(*pChild))
+                return oFound;
+        }
+        return std::nullopt;
     }
 
     static sal_Int32 spanOf(const std::optional<OUString>& rValue)
@@ -977,12 +1028,14 @@ private:
             aControl.properties.format = xdAttr(*aBound.source, u"datafmt");
             if (aControl.properties.format && aControl.properties.format->isEmpty())
                 aControl.properties.format.reset();
+            aControl.properties.prompt = ghostedText(rElement);
             return single(std::move(aControl));
         }
         if (rName == "richtext")
         {
             ControlDefinition aControl = boundControl(ControlType::TextArea, bound(rElement, rCtx), oId);
             aControl.properties.rich = true;
+            aControl.properties.prompt = ghostedText(rElement);
             return single(std::move(aControl));
         }
         if (rName == "optionbutton")
@@ -1054,6 +1107,16 @@ private:
             return single(boundControl(ControlType::FileAttachment, bound(rElement, rCtx), oId));
         if (rName == "inlineimage" || rName == "linkedimage")
             return single(boundControl(ControlType::Image, bound(rElement, rCtx), oId));
+        if (rName == "inkpicture")
+        {
+            // A signature box: its ink is data; what the view shows is its frame and its background picture.
+            ControlDefinition aControl = boundControl(ControlType::Image, bound(rElement, rCtx), oId);
+            aControl.properties.ink = true;
+            aControl.properties.source = xdAttr(rElement, u"backgroundPicture");
+            if (aControl.properties.source && aControl.properties.source->isEmpty())
+                aControl.properties.source.reset();
+            return single(std::move(aControl));
+        }
 
         if (rName.startsWith("dtpicker_"))
             return std::nullopt; // parts of a date picker

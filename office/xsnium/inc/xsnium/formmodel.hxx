@@ -147,6 +147,10 @@ struct ControlProperties
     std::optional<OUString> format;
     /** Dates: shown with a calendar button (a date picker), rather than as a plain text box. */
     bool picker = false;
+    /** Text fields: the grey prompt shown while the field is empty ("ghosted" text); never part of the data. */
+    std::optional<OUString> prompt;
+    /** Pictures: an ink area (a signature box), drawn with `source` as its background picture. */
+    bool ink = false;
     /** Dropdowns and lists. */
     std::optional<std::vector<ListOption>> options;
     std::optional<OptionsSource> optionsSource;

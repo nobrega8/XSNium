@@ -44,6 +44,7 @@ constexpr std::u16string_view NS_ENV = u"http://schemas.microsoft.com/office/inf
 constexpr std::u16string_view NS_USER = u"http://schemas.microsoft.com/office/infopath/2006/xslt/User";
 constexpr std::u16string_view NS_SERVER = u"http://schemas.microsoft.com/office/infopath/2009/xslt/ServerInfo";
 constexpr std::u16string_view NS_MSXSL = u"urn:schemas-microsoft-com:xslt";
+constexpr std::u16string_view NS_IMAGE = u"http://schemas.microsoft.com/office/infopath/2003/xslt/xImage";
 
 /** Prefixes InfoPath templates conventionally use, for when a template does not declare them. */
 std::optional<OUString> conventionalUri(std::u16string_view aPrefix)
@@ -52,6 +53,7 @@ std::optional<OUString> conventionalUri(std::u16string_view aPrefix)
         { u"xdMath", NS_MATH },     { u"xdDate", NS_DATE },          { u"xdUtil", NS_UTIL },
         { u"xdXDocument", NS_XDOC }, { u"xdExtension", NS_EXT },     { u"xdEnvironment", NS_ENV },
         { u"xdUser", NS_USER },     { u"xdServerInfo", NS_SERVER }, { u"msxsl", NS_MSXSL },
+        { u"xdImage", NS_IMAGE },
     };
     for (const auto& [rPrefix, rUri] : CONVENTIONAL)
         if (rPrefix == aPrefix)
@@ -376,6 +378,11 @@ const std::map<OUString, Fn>& infopathFunctions()
             return pDoc ? NodeSet{ documentNode(*pDoc) } : NodeSet();
         };
         m[key(NS_XDOC, u"GetMasterDOM")] = [](std::vector<XValue>&, const EvalContext&) -> XValue { return NodeSet(); };
+        // Views ask for this before showing an ink area; an address is never made, the ink stays in the data.
+        m[key(NS_IMAGE, u"getImageUrl")] = [](std::vector<XValue>& a, const EvalContext&) -> XValue {
+            argc(u"getImageUrl", a, 1);
+            return OUString();
+        };
         m[key(NS_ENV, u"IsBrowser")] = [](std::vector<XValue>&, const EvalContext&) -> XValue { return false; };
         return m;
     }();
