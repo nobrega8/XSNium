@@ -4,149 +4,108 @@
 
 [![CI](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml/badge.svg)](https://github.com/nobrega8/XSNium/actions/workflows/ci.yml)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%E2%89%A522.18-339933?logo=nodedotjs&logoColor=white)](package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)](.github/workflows/ci.yml)
-[![Status](https://img.shields.io/badge/status-early%20development-orange)](#roadmap)
+[![Based on LibreOffice](https://img.shields.io/badge/based%20on-LibreOffice-18A303)](office/LIBREOFFICE_COMMIT)
+[![Status](https://img.shields.io/badge/status-early%20development-orange)](#status)
 [![Last commit](https://img.shields.io/github/last-commit/nobrega8/XSNium)](https://github.com/nobrega8/XSNium/commits/main)
 [![Issues](https://img.shields.io/github/issues/nobrega8/XSNium)](https://github.com/nobrega8/XSNium/issues)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-XSNium opens, inspects and fills in legacy Microsoft InfoPath `.xsn` form templates without InfoPath or Microsoft Office installed.
+XSNium is **LibreOffice for InfoPath**: a fork of LibreOffice that fills in and edits legacy Microsoft InfoPath forms without InfoPath or Microsoft Office installed.
 
-It exists for organisations that still depend on InfoPath forms but can no longer install or license InfoPath on modern workstations. The first goal is **compatibility and migration**: correct data and behaviour for legacy forms. **Pixel-perfect rendering** of the original look is also a goal. It comes in stages after the MVP and is measured, not assumed (see [Rendering fidelity](#rendering-fidelity)).
+Like InfoPath, it has two applications:
 
-> **Status: early development.** The repository is public, but the project is young: APIs, the internal model and the CLI will change without notice. Package reading, manifest and schema parsing, the internal form model, the XML data model, view conversion and a first local web front end work. Calculated fields, rules, buttons and validation run. See the [Roadmap](#roadmap) for what is done and what is next.
+- **XSNium Filler** fills in a form. It opens an `.xsn` template (or existing form data), lets you fill it in with its calculations, rules and validation working, and saves the data as the same XML InfoPath saves. The `.xsn` is never modified.
+- **XSNium Designer** edits a form template. It saves an `.xsn` that still opens in the original InfoPath (2010 and 2013).
 
-> XSNium is an independent project and is not affiliated with or endorsed by Microsoft. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility.
+A form is never converted to another format: the Filler reads and writes InfoPath's own XML, and only the Designer writes `.xsn` files, and only when you edit a template in it.
+
+XSNium ships as **one installer that installs only XSNium Filler and XSNium Designer**, without Writer, Calc, Impress or the other LibreOffice applications.
+
+> **Status: early development.** The form engine works and is tested; the Filler and Designer screens are not built yet. See [Status](#status).
+
+> XSNium is an independent project and is not affiliated with or endorsed by Microsoft or The Document Foundation. "InfoPath" is a trademark of Microsoft Corporation and is used here only to describe file compatibility. "LibreOffice" is a trademark of The Document Foundation.
 
 ## How it works
 
-An `.xsn` is a template, not a program. XSNium treats it as untrusted input and translates it into its own model:
+An `.xsn` is a template, not a program. XSNium treats it as untrusted input and reads it into its own model. Everything below is C++ in the `xsnium` LibreOffice module ([office/xsnium](office/xsnium)):
 
 ```text
 .xsn (CAB package)
    -> package reader      safe extraction, limits, path checks
-   -> manifest parser     views, schemas, rules, data connections, features
-   -> schema parser       elements, types, repetition, constraints
-   -> form definition     the application's own representation
-   -> view parser         XSL view -> controls, labels, layout, bindings
-   -> data instance       XML data, edited by path (values, repeating rows)
+   -> manifest reader     views, schemas, rules, data connections, features
+   -> schema reader       elements, types, repetition, constraints
+   -> view reader         XSL view -> controls, labels, layout, bindings (the XSL is never run)
+   -> form definition     the application's own representation of the form
+   -> form data           InfoPath XML, edited by path (values, repeating rows)
    -> runtime             calculations, rules, buttons and validation (XPath 1.0 interpreter)
-   -> rendering engine    view + data -> a concrete tree a UI can draw
-   -> front end           local web UI (more front ends can follow)
-   -> XML instance        the data the user fills in
+   -> renderer            view + data -> a concrete tree a screen can draw
+   -> XSNium Filler       draws the form in LibreOffice and saves the XML   (to do)
+   -> XSNium Designer     edits the template and saves an .xsn               (to do)
 ```
 
-The `.xsn` is the template and the XML is the data. The original `.xsn` is never modified.
+The first version of XSNium was a local web app written in TypeScript ([src/](src)). It stays in the repository as the **reference implementation**: the C++ module is a port of it, test for test, and its tests still run in CI. New work goes into the LibreOffice fork.
 
-## Requirements
+## Status
 
-- Node.js 22.18 or newer (runs TypeScript directly, no build step)
-- npm
+| Part | Status |
+|---|---|
+| LibreOffice fork builds as the XSNium product | Done (Windows); XSNium's own logos and icons still to do |
+| Installer with only Filler and Designer | Working: one MSI with the two shortcuts; unused LibreOffice components still to be removed |
+| Package, manifest, schema and view readers | Done in C++ |
+| Form definition and form data (fill in, rows, save XML) | Done in C++ |
+| XPath interpreter, calculations, rules, buttons, validation | Done in C++ |
+| Pictures, file attachments, email submit as a draft `.eml` | Done in C++ |
+| Renderer (view + data -> drawable tree) | Done in C++ |
+| XSNium Filler screen in LibreOffice | Next |
+| XSNium Designer | After the Filler (see [plan.md](plan.md), section 37a) |
+| `.xsn` file association | To do |
 
-## Getting started
+The C++ module has 301 unit tests, including hostile inputs, and runs its real-template tests against local forms when they are available (see [Tests](#tests)).
+
+What the engine does today, and the Filler will offer:
+
+- calculated fields, rules triggered by changes, rule sets run by buttons, switching views;
+- validation from the schema (required fields, types, allowed values, patterns, lengths, bounds) and the template's own conditions;
+- repeating tables and sections, optional sections, choice groups, conditional content and conditional formatting;
+- embedded pictures and file attachments, in InfoPath's own encoding (programs and scripts are refused);
+- dropdowns fed by a data connection (a SharePoint list, a service), filled from a local XML file you supply. The connection itself is never run;
+- an email submit prepared as a draft `.eml` file with the form attached. **Nothing is ever sent**: you open the file in your mail program and send it yourself.
+
+Not run, only reported: custom code, other kinds of submit (web service, SharePoint, database) and digital signatures.
+
+## Building
+
+XSNium is built like LibreOffice, from the pinned LibreOffice commit plus the patches and module in [office/](office). The full setup on Windows, the problems met on the way and the installer settings are in [docs/building-xsnium-office.md](docs/building-xsnium-office.md).
+
+In short, with LibreOffice's build tools installed:
 
 ```bash
-git clone https://github.com/nobrega8/XSNium.git
-cd XSNium
-npm install
-npm test
+office/setup-office.sh        # fetch LibreOffice at the pinned commit, apply the patches, link office/xsnium
 ```
 
-### Fill in a form in the browser
+then configure and build the tree as the guide describes (`make` builds the whole product, including the installer; `make xsnium` builds only the XSNium module).
 
-```bash
-npm run xsnium -- serve path/to/form.xsn --open
-```
-
-This starts a local web UI on `127.0.0.1` (only this computer can reach it). You can open a template, fill it in, add and remove repeating rows, switch views, load existing data, save the result as XML, and see a compatibility panel listing what the template uses that is not supported yet. Omit the path to open a form from the page instead.
-
-**Print / PDF** in the toolbar prints the form or, from the print dialog, saves it as a PDF. Only the form is printed, with its colours and without the editing buttons, scaled down when it is wider than the page.
-
-### A single-file program
-
-`npm run build:exe` produces `dist/xsnium` (`dist/xsnium.exe` on Windows): one file that needs no Node.js installed. It is a Node single executable application, so it is built per platform, on that platform. Opening it without arguments starts the app and shows it in your browser; it accepts the same commands as the CLI. On Windows, `npm run build:installer` wraps it in an Inno Setup installer published as "Afonso Nóbrega Dev" (per-user by default, with an optional "Open with XSNium" entry for `.xsn` files). Versions follow [VERSIONING.md](VERSIONING.md), and tagging `vX.Y.Z` builds and publishes a release. The result is not code-signed, so Windows SmartScreen and macOS Gatekeeper will warn about it until signing is set up.
-
-### CLI
-
-```bash
-# List the package contents and a summary of the manifest
-npm run xsnium -- inspect path/to/form.xsn
-
-# Print the internal form definition as JSON
-npm run xsnium -- model path/to/form.xsn
-
-# Extract the package to a folder (the original is left untouched)
-npm run xsnium -- extract path/to/form.xsn ./out
-```
-
-Example `inspect` output:
-
-```text
-[PACKAGE] 9 entries
-[PACKAGE] manifest: manifest.xsf
-[MANIFEST] version 1.0.0.541, format 15.0.0.0
-[SCHEMA] 2 schema(s): myschema.xsd, BuiltInActiveXControls.xsd
-[VIEW] 1 view(s), default: Vista 1
-[CONNECTION] 1 data adapter(s)
-[FEATURE] unsupported: Custom code (CSharp code is never executed)
-[FEATURE] partial: Calculated fields (21 calculation(s))
-```
-
-### As a library
-
-```ts
-import { openXsn, buildFormDefinition, createInstance } from "./src/index.ts";
-
-const pkg = openXsn("form.xsn");
-const form = buildFormDefinition(pkg);
-
-console.log(form.name, form.views.map((v) => v.name));
-console.log(form.validations.length, "validations derived from the schema");
-
-// Fill in the form: start from the template's data, edit by path, save XML.
-const instance = createInstance(pkg, form);
-instance.setValue("/my:root/my:title", "Hello");
-instance.addRow("/my:root/my:items");
-const xml = instance.toXml(); // the original .xsn is never touched
-```
-
-Paths use a small, safe XPath subset (child and attribute steps, `..`, `[n]`, `[last()]`). Anything else is rejected rather than guessed.
-
-## Project layout
-
-```text
-src/
-  package/    CAB/MSZIP reader, entry safety, limits
-  xml/        hardened XML parsing (no DTDs, no entities)
-  manifest/   manifest.xsf -> ManifestModel, rules, connections, feature detection
-  schema/     XSD -> SchemaModel
-  form/       FormDefinition: the internal model the rest of the app uses
-  view/       InfoPath view (XSL) -> controls, without running the XSL
-  data/       XML data documents, path subset, FormInstance (edit, rows, save)
-  xpath/      XPath 1.0 interpreter with the InfoPath functions templates use
-  runtime/    calculated fields, rules, rule sets run by buttons, validation
-  render/     rendering engine: view + data -> concrete tree (no UI code)
-  server/     local web front end (server + plain HTML/JS/CSS)
-  cli/        xsnium command
-tests/        unit, security and real-world fixture tests
-plan.md       full design and phased plan
-```
-
-Layers only depend downwards: the parsers know nothing about the UI, the rendering engine knows nothing about HTML, and front ends never read `.xsn` files directly.
+| Path | What it is |
+|---|---|
+| [office/xsnium/](office/xsnium) | The `xsnium` module: XSNium's own C++ code and its tests |
+| [office/patches/](office/patches) | XSNium's changes to LibreOffice's own files (installer contents, shortcuts, command line, build fixes) |
+| [office/LIBREOFFICE_COMMIT](office/LIBREOFFICE_COMMIT) | The LibreOffice commit XSNium is built on |
+| [office/autogen.xsnium](office/autogen.xsnium) | Product settings for LibreOffice's configure |
+| [src/](src), [tests/](tests) | The TypeScript reference implementation and its tests |
+| [plan.md](plan.md) | Design and plan (the product is described in section 1a) |
 
 ## Security
 
-`.xsn` files are untrusted. XSNium is built so that opening one cannot run code or reach the network.
+`.xsn` files and form data are untrusted. XSNium is built so that opening one cannot run code or reach the network.
 
 - No code from a template is ever executed (managed code, scripts, ActiveX, macros). It is reported as unsupported instead.
-- Expressions in rules, calculations and validation are interpreted, never compiled: XPath is parsed into a small tree with bounded length and nesting, every evaluation has a step budget, nested evaluation is limited, unknown functions are refused, and nothing outside the form's own data is reachable. Rules and calculations that keep triggering each other stop with a reported error, and patterns that could backtrack catastrophically are not run.
+- The XSL of a view is read as a tree to find controls and bindings. It is never run as a transformation.
+- Expressions in rules, calculations and validation are interpreted, never compiled: XPath is parsed into a small tree with bounded length and nesting, every evaluation has a step budget, nested evaluation is limited, unknown functions are refused, and nothing outside the form's own data and the clock is reachable. Rules and calculations that keep triggering each other stop with a reported error.
+- Schema patterns run on ICU with a time limit, and patterns that could backtrack catastrophically are not run.
 - XML with a `DOCTYPE` or entity declaration is rejected, which rules out XXE and entity-expansion attacks. Nesting depth is capped.
 - Package extraction rejects absolute paths and `..` traversal, and enforces limits on package size, entry count, per-entry size and total expansion (decompression bombs).
+- Appearance from a template goes through an allow-list of plain CSS properties and values: nothing can load a resource or run script.
 - External schema imports and data connections are detected and reported, never fetched or executed.
-- Recorded publish locations and email recipients are not retained in the model.
-- The local web UI listens on the loopback interface only. Every API call needs a per-run token, requests with a foreign `Host` or `Origin` are rejected, responses carry a strict content security policy, and the page builds its DOM from text only so form content cannot inject markup.
+- Recorded publish locations and email recipients are not kept in the form model.
 
 ### Reporting a vulnerability
 
@@ -154,64 +113,33 @@ Because this tool parses untrusted files, security reports are especially welcom
 
 ## Tests
 
+In the LibreOffice tree, each part of the module has its own CppUnit target:
+
 ```bash
-npm test          # all tests
-npm run typecheck # TypeScript
+make CppunitTest_xsnium_package    # also: manifest, schema, data, view, form, xpath, runtime, blobs, submit, render
 ```
 
-The end-to-end tests in `tests/e2e/` drive the web UI in a real browser with Playwright (`playwright-core`). They use the Edge or Chrome already installed on the machine, download nothing, and skip themselves when no browser is found, so `npm test` still works on a bare machine or CI runner.
+They cover the readers, the form model and data, the XPath interpreter, the runtime and the renderer, plus malformed and hostile inputs (truncated cabinets, path traversal, decompression bombs, XXE, billion laughs, schema and view expansion bombs, runaway expressions, forged attachments).
 
-Tests cover the package reader, manifest, schema, view and form builders, the data model, the rendering engine and the local server, plus malformed and hostile inputs (truncated cabinets, path traversal, decompression bombs, XXE, billion laughs, schema and view expansion bombs, forged `Host` and `Origin` headers).
+Tests that use real-world templates read `.xsn` files from the folder named by the `XSNIUM_EXAMPLES` environment variable, usually `example_files/`. That folder is git-ignored because real forms often contain company data, and those tests do nothing without it. Never commit real templates; use sanitised or synthetic fixtures instead (see [Contributing](#contributing)).
 
-`tests/security/fuzz.test.ts` fuzzes the readers: seeded random damage to packages, XML, XPath expressions, styles and attachments must only ever produce a reported `XsnError`, quickly. It is deterministic and short by default; for a deeper run use `FUZZ_ROUNDS=4000 npm test`.
-
-Tests that use real-world templates read `.xsn` files from `example_files/`. That folder is git-ignored because real forms often contain company data, and those tests are skipped when it is empty. Never commit real templates; use sanitised or synthetic fixtures instead (see [Contributing](#contributing)).
+The TypeScript reference implementation keeps its own tests (`npm install && npm test`), which CI runs.
 
 ## References
 
-- [MS-IPFFX] InfoPath Form File Format, Microsoft Open Specifications (describes the XML form file: processing instructions, file attachments, embedded pictures, signatures).
+- [MS-IPFFX] InfoPath Form File Format, Microsoft Open Specifications (the XML form file: processing instructions, file attachments, embedded pictures, signatures).
+- [MS-IPFF2] InfoPath Form Template Format, Microsoft Open Specifications (the `.xsn` template the Designer must write).
 
-## Roadmap
+## Not goals
 
-| Phase | Area | Status |
-|---|---|---|
-| 1 | Package inspection | Done |
-| 2 | Manifest parser (rules, handlers, connections) | Done |
-| 3 | XSD schema parser | Done |
-| 4 | Internal form model | Done |
-| 5 | XML data model and path binding | Done (path subset; full expressions come with Phase 12) |
-| 6 | Controls and view conversion | Done |
-| 7 | Rendering engine and first front end | In progress (engine and local web UI work; polish and more controls needed) |
-| 8-9 | UI bindings, repeating structures | Mostly covered by the above; hardening on more forms |
-| 10 | Validation (schema and template conditions) | Done |
-| 11 | Views (several views, switching, initial view) | Done |
-| 12 | Rules, calculations and expressions | Done for calculations, change-triggered rules, button rule sets, set-value, switch-view and custom validation; submit and dialog actions are reported, not run |
-| 13-15 | Compatibility report, external connections, SharePoint | Planned |
-| F1-F6 | Rendering fidelity: pixel-perfect layout, box styles, text, control chrome, conditional formatting, print | In progress: layout, table widths, box styles, conditional formatting of style and printing done; text details and control chrome to do |
-| 16 | Form authoring: create and edit templates | Planned, after the MVP |
-
-**Today:** open a template, fill it in with calculated fields, rules and validation working, and save the result as XML in the local web UI. Embedded pictures and file attachments work (InfoPath's own encoding, programs and scripts refused). Dropdowns fed by a data connection (a SharePoint list, a service) can be filled from a local XML file you supply; the connection itself is never run. Submitting a form that uses an email adapter saves a draft `.eml` file with the form attached, addressed from the template's settings; **nothing is ever sent**, you open the file in your mail program and send it yourself. Digital signatures and other kinds of submit (web service, SharePoint, database) are not executed.
-**MVP goal:** the same, with validation and the common rules working, on a set of real forms.
-**Later:** author new templates and edit existing ones on the internal model, saving as a new file (never overwriting the original), with optional `.xsn` export. See [plan.md](plan.md), section 37a. The final application is intended to ship as a desktop app for Windows, macOS and Linux, reusing the same core and UI.
-
-## Rendering fidelity
-
-The goal is for a form to look, at the size it was designed for, the way it did in InfoPath: same positions, sizes, fonts, colours, borders and column widths. Today the UI can draw a form with its own stylesheet, table widths, fonts and box styles (the default **Original layout**), or in a plain responsive **modern layout** (untick the toolbar option).
-
-Fidelity is built as its own track: the view parser keeps a sanitised style layer that the front end applies in original-layout mode, and progress is measured with layout assertions, visual regression and comparisons against reference screenshots from real InfoPath. Text rasterisation and native widget chrome can differ by platform, and appearance data from a template is treated as untrusted like everything else. Details and stages are in [plan.md](plan.md), section 9a.
-
-If you have forms whose look matters, reference screenshots from InfoPath (with private data removed) are one of the most useful contributions.
-
-## Not goals (for now)
-
-- Pixel-perfect rendering in the first MVP (it is a later goal, see [Rendering fidelity](#rendering-fidelity))
-- Running InfoPath custom code, VBScript or ActiveX
-- Full SharePoint, SQL or SOAP integration in the first version
-- Modifying an existing `.xsn` in place
+- Converting forms to another format. The Filler works on InfoPath's XML, the Designer on `.xsn`.
+- Running InfoPath custom code, VBScript or ActiveX.
+- Full SharePoint, SQL or SOAP integration in the first version.
+- Shipping the rest of LibreOffice. The installer contains only XSNium Filler and XSNium Designer.
 
 ## Contributing
 
-Contributions are welcome: bug reports, sanitised test forms, new control or rule support, documentation and fixes. The project is early, so **please open an issue before starting anything larger than a small fix**, so the direction can be agreed first. The design lives in [plan.md](plan.md), and it is worth reading the architecture rules there before writing code.
+Contributions are welcome: bug reports, sanitised test forms, support for more controls and rules, documentation and fixes. The project is early, so **please open an issue before starting anything larger than a small fix**, so the direction can be agreed first. The design lives in [plan.md](plan.md).
 
 ### Contributors
 
@@ -221,32 +149,33 @@ Everyone who has contributed code to XSNium:
   <img src="https://contrib.rocks/image?repo=nobrega8/XSNium" alt="Contributors to XSNium" />
 </a>
 
-
 ### Ways to help
 
-- **Try your own forms and report what breaks.** Run `xsnium inspect` and `xsnium model` on a template and open an issue with what looks wrong. Include the `inspect` output, which lists detected features, rather than the form itself.
+- **Try your own forms and report what breaks.** Include the features the form uses and what went wrong, not the form itself.
 - **Contribute a test form.** Real-world variety is the most valuable thing the project can get. See the rules below on removing private data.
-- **Pick up unsupported features.** The compatibility panel and the `[FEATURE]` lines in `inspect` show what is missing (expressions, data connections, signatures, more controls).
-- **Improve documentation and examples.**
+- **Pick up unsupported features:** more controls, data connections, signatures.
+- **Improve documentation and the build guide**, especially for platforms other than Windows.
 
 ### Sending a pull request
 
 1. Fork the repository and create a branch from `main` with a short descriptive name.
 2. Keep the change focused. One concern per pull request is much easier to review than a mixed one.
 3. Add or update tests. Every newly supported InfoPath feature needs a test, and anything that touches untrusted input needs a hostile-input test as well.
-4. Run `npm test` and `npm run typecheck`. Both must pass.
+4. Build the module and run its tests; all of them must pass.
 5. Open the pull request against `main`. Say what it changes and why, and link the issue it belongs to. Describe how you checked it, and mention any real form you tried it on without attaching it.
+
+Changes to LibreOffice's own files go in `office/patches/`: commit them in the LibreOffice tree on the `xsnium` branch and run `office/export-patches.sh`.
 
 Commit messages should be short, in the imperative ("Add choice group support"), with a body that explains the reason when it is not obvious. Do not include secrets, private data, or links to private conversations in commits or pull request text.
 
 ### Code guidelines
 
-- **Respect the layers.** Parsers must not depend on the UI, the rendering engine must not depend on HTML, and front ends must not read `.xsn` files directly. The `.xsn` format is an input, not the internal format.
-- **Never execute template code.** No script, managed code, ActiveX, `eval`-style expression handling, or loading of external resources from a template. Expressions are stored as text until a safe evaluator exists.
+- **Respect the layers.** The readers, the form model, the runtime and the renderer know nothing about the screen; the Filler and Designer never read `.xsn` files directly. The `.xsn` format is an input and an output, not the internal format.
+- **Never execute template code.** No script, managed code, ActiveX, compiled expressions, or loading of external resources from a template.
 - **Parse defensively.** Use the hardened XML layer, keep size, depth and count limits, and validate paths. Prefer a clear diagnostic and graceful degradation over crashing or guessing.
 - **Do not build speculative features.** Support what real forms use; base changes on a template you have inspected.
-- **Match the surrounding code:** naming, comment density and idiom. The code is TypeScript that runs directly on Node with no build step, so use only syntax that Node's type stripping supports (no enums, no parameter properties).
-- **Keep the front end simple.** It is plain HTML, JavaScript and CSS with no framework or bundler, and it builds the DOM from text only. Do not use `innerHTML` with data that comes from a form.
+- **Match the surrounding code:** LibreOffice's C++ conventions (`OUString`, naming, `XSNIUM_DLLPUBLIC` for what the module exports), and the naming, comment density and idiom of the file you are in.
+- **Keep the Designer's output compatible.** An `.xsn` written by XSNium must open in InfoPath 2010 and 2013.
 
 ### Test forms and private data
 
@@ -263,6 +192,8 @@ Be respectful and constructive. Assume good faith, keep feedback about the code 
 
 ## License
 
-XSNium is licensed under the [Mozilla Public License 2.0](LICENSE), the same family of licence LibreOffice uses. In short: you may use, modify and distribute it, including in commercial and closed-source products. If you change a file that is covered by this licence and distribute the result, you must share your changes to that file under the same licence. Code you add in your own new files can have any licence.
+XSNium is licensed under the [Mozilla Public License 2.0](LICENSE), like LibreOffice. In short: you may use, modify and distribute it, including in commercial and closed-source products. If you change a file that is covered by this licence and distribute the result, you must share your changes to that file under the same licence. Code you add in your own new files can have any licence.
 
-Contributions are accepted under the same licence: by sending a pull request you agree that your work is released under it. Do not contribute code you cannot license this way, and do not copy code from InfoPath, Office, LibreOffice or any other project unless its licence allows it and you say where it came from.
+LibreOffice itself, which XSNium is built on, keeps its own licence terms (MPL 2.0, with parts under other licences); see the LibreOffice source.
+
+Contributions are accepted under the same licence: by sending a pull request you agree that your work is released under it. Do not contribute code you cannot license this way, and do not copy code from InfoPath, Office or any other project unless its licence allows it and you say where it came from.
