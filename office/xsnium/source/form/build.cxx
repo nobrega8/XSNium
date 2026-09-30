@@ -13,6 +13,7 @@
 #include <xsnium/errors.hxx>
 #include <xsnium/style.hxx>
 #include <xsnium/viewparser.hxx>
+#include <xsnium/xpath.hxx>
 
 #include <rtl/character.hxx>
 #include <rtl/ustrbuf.hxx>
@@ -462,6 +463,100 @@ std::vector<ViewDefinition> buildViews(const ManifestModel& rManifest, XsnPackag
     return aViews;
 }
 
+/** How much of the rules, calculations and custom validation this runtime can actually run. */
+std::vector<DetectedFeature> executableFeatures(const ManifestModel& rManifest, const std::vector<RuleDefinition>& rRules,
+                                                const std::vector<ValidationDefinition>& rValidations,
+                                                const std::vector<ManifestNamespace>& rNamespaces)
+{
+    std::map<OUString, OUString> aUriByPrefix;
+    for (const ManifestNamespace& rNamespace : rNamespaces)
+        aUriByPrefix.emplace(rNamespace.prefix, rNamespace.uri);
+    const NamespaceResolver aResolve = [&](const OUString& rPrefix) -> std::optional<OUString> {
+        auto it = aUriByPrefix.find(rPrefix);
+        return it == aUriByPrefix.end() ? std::nullopt : std::optional<OUString>(it->second);
+    };
+    auto problems = [&](const std::vector<OUString>& rExpressions) {
+        std::vector<OUString> aProblems;
+        for (const OUString& rExpression : rExpressions)
+            if (!rExpression.isEmpty())
+                if (std::optional<OUString> oProblem = checkExpression(rExpression, aResolve).problem)
+                    aProblems.push_back(*oProblem);
+        return aProblems;
+    };
+    auto summarise = [](const std::vector<OUString>& rList) {
+        std::vector<OUString> aUnique;
+        for (const OUString& rItem : rList)
+            if (std::find(aUnique.begin(), aUnique.end(), rItem) == aUnique.end() && aUnique.size() < 3)
+                aUnique.push_back(rItem);
+        OUStringBuffer aOut;
+        for (size_t i = 0; i < aUnique.size(); ++i)
+            aOut.append((i ? u"; "_ustr : OUString()) + aUnique[i]);
+        return aOut.makeStringAndClear();
+    };
+    const OUString aLocation = u"manifest.xsf"_ustr;
+    auto add = [&](std::vector<DetectedFeature>& rOut, const OUString& rFeature, const std::vector<OUString>& rIssues,
+                   const OUString& rWhenFine) {
+        rOut.push_back({ rFeature, rIssues.empty() ? FeatureSupport::Supported : FeatureSupport::Partial, aLocation,
+                         rIssues.empty() ? rWhenFine : summarise(rIssues) });
+    };
+
+    std::vector<DetectedFeature> aOut;
+    for (const DetectedFeature& rFeature : rManifest.features)
+        if (rFeature.feature != "Rules" && rFeature.feature != "Calculated fields" && rFeature.feature != "Custom validation")
+            aOut.push_back(rFeature);
+
+    std::vector<OUString> aCalculationExpressions;
+    size_t nCalculations = 0, nRules = 0;
+    std::vector<OUString> aRuleExpressions;
+    std::vector<OUString> aUnsupportedActions;
+    for (const RuleDefinition& rRule : rRules)
+    {
+        if (rRule.origin == RuleOrigin::Calculation)
+        {
+            ++nCalculations;
+            for (const RuleAction& rAction : rRule.actions)
+                if (rAction.type == RuleActionType::SetValue)
+                    aCalculationExpressions.push_back(rAction.expression);
+            continue;
+        }
+        ++nRules;
+        if (rRule.condition)
+            aRuleExpressions.push_back(*rRule.condition);
+        for (const RuleAction& rAction : rRule.actions)
+        {
+            if (rAction.type == RuleActionType::SetValue)
+                aRuleExpressions.push_back(rAction.expression);
+            else if (rAction.type == RuleActionType::Unsupported
+                     && std::find(aUnsupportedActions.begin(), aUnsupportedActions.end(), rAction.kind)
+                            == aUnsupportedActions.end())
+                aUnsupportedActions.push_back(rAction.kind);
+        }
+    }
+    if (nCalculations > 0)
+        add(aOut, u"Calculated fields"_ustr, problems(aCalculationExpressions),
+            OUString::number(nCalculations) + " calculation(s)");
+    if (nRules > 0)
+    {
+        std::vector<OUString> aIssues = problems(aRuleExpressions);
+        if (!aUnsupportedActions.empty())
+        {
+            OUStringBuffer aActions(u"Actions not supported: ");
+            for (size_t i = 0; i < aUnsupportedActions.size(); ++i)
+                aActions.append((i ? u", "_ustr : OUString()) + aUnsupportedActions[i]);
+            aIssues.push_back(aActions.makeStringAndClear());
+        }
+        add(aOut, u"Rules"_ustr, aIssues, OUString::number(nRules) + " rule(s)");
+    }
+    std::vector<OUString> aCustomExpressions;
+    for (const ValidationDefinition& rValidation : rValidations)
+        if (rValidation.type == ValidationType::Custom)
+            aCustomExpressions.push_back(rValidation.expression.value_or(OUString()));
+    if (!aCustomExpressions.empty())
+        add(aOut, u"Custom validation"_ustr, problems(aCustomExpressions),
+            OUString::number(aCustomExpressions.size()) + " condition(s)");
+    return aOut;
+}
+
 OUString slug(const OUString& rValue)
 {
     OUStringBuffer aOut;
@@ -625,9 +720,7 @@ FormDefinition buildFormDefinition(XsnPackage& rPackage)
     aForm.productVersion = rManifest.productVersion;
     aForm.namespaces = aPrefixes.definitions;
     aForm.resources = buildResources(rPackage.entries());
-    // Rules, calculations and custom validation stay reported as the manifest found them (partial) until this
-    // runtime can evaluate their expressions; the web app then grades each expression it can or cannot run.
-    aForm.features = rManifest.features;
+    aForm.features = executableFeatures(rManifest, aForm.rules, aForm.validations, aForm.namespaces);
     return aForm;
 }
 }

@@ -232,10 +232,11 @@ public:
         const DetectedFeature* pCode = featureNamed(m_aForm.features, u"Custom code");
         CPPUNIT_ASSERT(pCode);
         CPPUNIT_ASSERT(pCode->support == FeatureSupport::Unsupported);
-        // Calculations stay partial until the XPath engine can evaluate them.
+        // Calculations the runtime can run are reported as supported.
         const DetectedFeature* pCalculations = featureNamed(m_aForm.features, u"Calculated fields");
         CPPUNIT_ASSERT(pCalculations);
-        CPPUNIT_ASSERT(pCalculations->support == FeatureSupport::Partial);
+        CPPUNIT_ASSERT(pCalculations->support == FeatureSupport::Supported);
+        CPPUNIT_ASSERT_EQUAL(std::string("1 calculation(s)"), s(pCalculations->detail));
     }
 
     void testMimeTypes()
@@ -491,6 +492,10 @@ public:
         CPPUNIT_ASSERT_EQUAL(std::string("Second"), s(aInvoked[1]->actions[0].view));
         CPPUNIT_ASSERT(aInvoked[2]->actions.at(0).type == RuleActionType::Unsupported);
         CPPUNIT_ASSERT_EQUAL(std::string("dialogBoxMessageAction"), s(aInvoked[2]->actions[0].kind));
+        // The compatibility report names what cannot run.
+        const DetectedFeature* pRules = featureNamed(aForm.features, u"Rules");
+        CPPUNIT_ASSERT(pRules && pRules->support == FeatureSupport::Partial);
+        CPPUNIT_ASSERT_EQUAL(std::string("Actions not supported: dialogBoxMessageAction"), s(pRules->detail));
     }
 
     void testCustomValidationInTheForm()

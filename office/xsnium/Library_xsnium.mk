@@ -40,6 +40,9 @@ $(eval $(call gb_Library_add_exception_objects,xsnium,\
     xsnium/source/view/style \
     xsnium/source/view/viewparser \
     xsnium/source/xml/safexml \
+    xsnium/source/xpath/evaluator \
+    xsnium/source/xpath/functions \
+    xsnium/source/xpath/parser \
 ))
 
 # vim: set noet sw=4 ts=4:
