@@ -31,6 +31,7 @@ The installer must provide:
 * File associations: opening a `.xsn` starts Filler; a "Design" entry on the `.xsn` context menu starts Designer. InfoPath XML data files (with the `mso-infoPathSolution` processing instruction) open in Filler.
 * A per-user install by default, an optional per-machine install, and a silent install for corporate deployment (section 35).
 * Its own version numbering (VERSIONING.md) and the same publisher as today ("Afonso Nóbrega Dev").
+* Its own icons, adapted from LibreOffice's `.ico` files (`sysui/desktop/icons`, e.g. `writer_app.ico` and the document icons) in XSNium's colours: the purple gradient and pink accents of `assets/icon-128.png`. One for XSNium Filler, one for XSNium Designer, and document icons for `.xsn` templates and InfoPath XML data, each with every size Windows uses (16 to 256 px). They replace LibreOffice's icons in the installer, the shortcuts, the window and the file associations.
 
 The existing single-file Node build and its Inno Setup installer are replaced by this installer once Filler reaches the MVP.
 
