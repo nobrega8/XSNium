@@ -535,6 +535,13 @@ public:
         CPPUNIT_ASSERT_EQUAL(Strings{ "a b" }, labels(aResult.controls));
     }
 
+    void testNoBreakSpaceLinesAreKept()
+    {
+        // An empty line made of &nbsp; is a spacer with a height; plain formatting whitespace is not.
+        const ViewParseResult aResult = parse("<div>a</div><div>&#160;</div><div>   </div><div>b</div>");
+        CPPUNIT_ASSERT_EQUAL((Strings{ "a", "\xc2\xa0", "b" }), labels(aResult.controls));
+    }
+
     void testPackageImagesOnly()
     {
         const ViewParseResult aResult = parse(
@@ -876,6 +883,7 @@ public:
     CPPUNIT_TEST(testConditionalFormatting);
     CPPUNIT_TEST(testRegionsAndLists);
     CPPUNIT_TEST(testIgnoresHeadScriptsAndWhitespace);
+    CPPUNIT_TEST(testNoBreakSpaceLinesAreKept);
     CPPUNIT_TEST(testPackageImagesOnly);
     CPPUNIT_TEST(testTextControls);
     CPPUNIT_TEST(testOptionButtonsAndCheckboxes);

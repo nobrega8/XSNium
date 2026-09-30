@@ -143,8 +143,10 @@ struct ControlProperties
     /** Checkboxes and option buttons. */
     std::optional<OUString> onValue;
     std::optional<OUString> offValue;
-    /** Date pickers: the display format. */
+    /** The display format the view gives a field (xd:datafmt), e.g. "number","numDigits:2;". */
     std::optional<OUString> format;
+    /** Dates: shown with a calendar button (a date picker), rather than as a plain text box. */
+    bool picker = false;
     /** Dropdowns and lists. */
     std::optional<std::vector<ListOption>> options;
     std::optional<OptionsSource> optionsSource;

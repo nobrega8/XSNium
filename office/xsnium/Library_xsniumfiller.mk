@@ -20,9 +20,12 @@ $(eval $(call gb_Library_set_componentfile,xsniumfiller,xsnium/util/xsniumfiller
 $(eval $(call gb_Library_use_sdk_api,xsniumfiller))
 
 $(eval $(call gb_Library_use_libraries,xsniumfiller,\
+    comphelper \
     cppu \
     cppuhelper \
+    i18nlangtag \
     sal \
+    utl \
     xsnium \
 ))
 

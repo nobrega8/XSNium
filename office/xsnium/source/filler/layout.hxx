@@ -15,14 +15,22 @@
 
 #include <com/sun/star/text/XTextDocument.hpp>
 
+#include <functional>
+#include <optional>
+#include <vector>
+
 namespace xsnium::filler
 {
+/** The bytes of the picture a node shows: an image of the template's package, or a picture stored in the data. */
+typedef std::function<std::optional<std::vector<sal_uInt8>>(const RenderNode&)> PictureSource;
+
 /**
  * Lay out a rendered view at the end of a Writer document: static text and boxes become paragraphs and
  * formatting, layout tables become Writer tables, and every control becomes a form control holding the current
  * value. Each control model is named after its render node and tagged with its concrete data path.
  */
-void layOutView(const css::uno::Reference<css::text::XTextDocument>& rDocument, const RenderedView& rView);
+void layOutView(const css::uno::Reference<css::text::XTextDocument>& rDocument, const RenderedView& rView,
+                const PictureSource& rPictures);
 }
 
 /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

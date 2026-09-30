@@ -18,7 +18,12 @@
 #include <com/sun/star/beans/PropertyValue.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/beans/XPropertySetInfo.hpp>
+#include <com/sun/star/document/DocumentEvent.hpp>
+#include <com/sun/star/document/XDocumentEventBroadcaster.hpp>
+#include <com/sun/star/document/XDocumentEventListener.hpp>
 #include <com/sun/star/document/XExtendedFilterDetection.hpp>
+#include <com/sun/star/frame/XController.hpp>
+#include <com/sun/star/view/XViewSettingsSupplier.hpp>
 #include <com/sun/star/document/XFilter.hpp>
 #include <com/sun/star/document/XImporter.hpp>
 #include <com/sun/star/frame/XModel.hpp>
@@ -68,6 +73,31 @@ std::vector<sal_uInt8> readAll(const uno::Reference<io::XInputStream>& rStream)
     return aBytes;
 }
 
+/**
+ * Once the form has a window: hide Writer's on-screen helpers (table and text boundaries, field shadings), which
+ * InfoPath does not draw and which would sit on top of the form's own lines.
+ */
+class ViewSetup : public cppu::WeakImplHelper<document::XDocumentEventListener>
+{
+public:
+    void SAL_CALL documentEventOccured(const document::DocumentEvent& rEvent) override
+    {
+        if (rEvent.EventName != "OnViewCreated" && rEvent.EventName != "OnLoad")
+            return;
+        uno::Reference<frame::XModel> xModel(rEvent.Source, uno::UNO_QUERY);
+        uno::Reference<view::XViewSettingsSupplier> xSupplier(xModel.is() ? xModel->getCurrentController() : nullptr, uno::UNO_QUERY);
+        if (!xSupplier.is())
+            return;
+        uno::Reference<beans::XPropertySet> xSettings = xSupplier->getViewSettings();
+        // Field shadings also shade the non-breaking spaces views use as spacers.
+        for (const OUString& rName : { u"ShowTableBoundaries"_ustr, u"ShowTextBoundaries"_ustr, u"ShowTextFieldBackground"_ustr })
+            if (xSettings->getPropertySetInfo()->hasPropertyByName(rName))
+                xSettings->setPropertyValue(rName, uno::Any(false));
+    }
+
+    void SAL_CALL disposing(const lang::EventObject&) override {}
+};
+
 class XsniumImportFilter
     : public cppu::WeakImplHelper<document::XFilter, document::XImporter, document::XExtendedFilterDetection,
                                   lang::XInitialization, lang::XServiceInfo>
@@ -88,9 +118,24 @@ public:
             uno::Reference<frame::XModel> xModel(xDocument, uno::UNO_QUERY);
             if (xModel.is())
                 xModel->lockControllers();
+            const PictureSource aPictures = [&pSession](const RenderNode& rNode) -> std::optional<std::vector<sal_uInt8>> {
+                try
+                {
+                    // A picture of the template, or one the data holds.
+                    if (rNode.properties && rNode.properties->source)
+                        return pSession->package->read(*rNode.properties->source);
+                    if (rNode.path)
+                        if (std::optional<BlobContent> oBlob = pSession->runtime->readBlob(*rNode.path); oBlob && oBlob->kind == BlobKind::Picture)
+                            return oBlob->bytes;
+                }
+                catch (const XsnError&)
+                {
+                }
+                return std::nullopt;
+            };
             try
             {
-                layOutView(xDocument, aView);
+                layOutView(xDocument, aView, aPictures);
             }
             catch (...)
             {
@@ -106,6 +151,8 @@ public:
             if (xProps.is() && xProps->getPropertySetInfo()->hasPropertyByName(u"ApplyFormDesignMode"_ustr))
                 xProps->setPropertyValue(u"ApplyFormDesignMode"_ustr, uno::Any(false));
 
+            if (uno::Reference<document::XDocumentEventBroadcaster> xEvents{ xDocument, uno::UNO_QUERY })
+                xEvents->addDocumentEventListener(new ViewSetup);
             attach(xDocument, std::move(pSession));
             return true;
         }

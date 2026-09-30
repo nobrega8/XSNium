@@ -74,7 +74,8 @@ bool isBoxTag(std::u16string_view aTag)
 /** The element a box is drawn as: known tags keep their name, everything else is a div or a span. */
 OUString boxTagFor(const OUString& rTag)
 {
-    if (isBoxTag(rTag))
+    // The body keeps its name: its look is the canvas the form sits on, not a box inside the form.
+    if (isBoxTag(rTag) || rTag == "body")
         return rTag;
     if (rTag == "font")
         return u"span"_ustr;
@@ -395,9 +396,14 @@ private:
 
     void flush(Controls& rOut, Frame& rFrame)
     {
+        const bool bNoBreakSpace = rFrame.text.indexOf(u' ') >= 0;
         const OUString aCollapsed = collapse(rFrame.text);
         rFrame.text.setLength(0);
-        const OUString aText = aCollapsed.trim();
+        OUString aText = aCollapsed.trim();
+        // Formatting whitespace is dropped, but a non-breaking space is content: a block holding only &nbsp; is
+        // the empty line views use as a spacer, and it keeps its height.
+        if (aText.isEmpty() && bNoBreakSpace)
+            aText = u" "_ustr;
         if (aText.isEmpty())
             return;
         // A space at either edge matters next to inline content (a label followed by a field), so keep a note of it.
@@ -968,6 +974,9 @@ private:
                 eType = ControlType::Date;
             ControlDefinition aControl = boundControl(eType, aBound, oId);
             aControl.properties.expression = aBound.expression;
+            aControl.properties.format = xdAttr(*aBound.source, u"datafmt");
+            if (aControl.properties.format && aControl.properties.format->isEmpty())
+                aControl.properties.format.reset();
             return single(std::move(aControl));
         }
         if (rName == "richtext")
@@ -993,6 +1002,7 @@ private:
         {
             const Bound aBound = bound(rElement, rCtx);
             ControlDefinition aControl = boundControl(ControlType::Date, aBound, oId);
+            aControl.properties.picker = true;
             aControl.properties.format = xdAttr(*aBound.source, u"datafmt");
             if (aControl.properties.format && aControl.properties.format->isEmpty())
                 aControl.properties.format.reset();
