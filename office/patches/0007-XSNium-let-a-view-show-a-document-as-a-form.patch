@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Wed, 30 Sep 2026 17:30:35 +0100
+Subject: [PATCH 7/7] XSNium: let a view show a document as a form
+
+Writer's form view (only form controls can be edited, no boundaries drawn)
+was reachable only for XForms documents. The FormView view setting lets
+XSNium Filler show an InfoPath form ready to fill in.
+
+Change-Id: I12c9a6a415c2e95fee657b1993acaef72a08d5f4
+---
+ sw/source/uibase/uno/unomod.cxx | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/sw/source/uibase/uno/unomod.cxx b/sw/source/uibase/uno/unomod.cxx
+index 9fe3abd1c..ea8c57094 100644
+--- a/sw/source/uibase/uno/unomod.cxx
++++ b/sw/source/uibase/uno/unomod.cxx
+@@ -97,7 +97,8 @@ enum SwViewSettingsPropertyHandles
+     HANDLE_VIEWSET_SHOW_OUTLINECONTENTVISIBILITYBUTTON,
+     HANDLE_VIEWSET_TREAT_SUB_OUTLINE_LEVELS_AS_CONTENT,
+     HANDLE_VIEWSET_CHANGES_IN_MARGIN,
+-    HANDLE_VIEWSET_TEXTBOUNDARIES
++    HANDLE_VIEWSET_TEXTBOUNDARIES,
++    HANDLE_VIEWSET_FORM_VIEW
+ };
+ 
+ enum SwPrintSettingsPropertyHandles
+@@ -176,6 +177,8 @@ static rtl::Reference<ChainablePropertySetInfo> lcl_createViewSettingsInfo()
+         { u"ZoomType"_ustr,             HANDLE_VIEWSET_ZOOM_TYPE            , cppu::UnoType<sal_Int16>::get(),   PROPERTY_NONE},
+         { u"ZoomValue"_ustr,            HANDLE_VIEWSET_ZOOM                 , cppu::UnoType<sal_Int16>::get(),   PROPERTY_NONE},
+         { u"TextBoundaries"_ustr,       HANDLE_VIEWSET_TEXTBOUNDARIES       , cppu::UnoType<sal_Int16>::get(),   PROPERTY_NONE},
++        // Only form controls can be edited, as in an XForms document outside design mode.
++        { u"FormView"_ustr,             HANDLE_VIEWSET_FORM_VIEW            , cppu::UnoType<bool>::get(), PROPERTY_NONE},
+         { OUString(), 0, css::uno::Type(), 0 }
+     };
+     return new ChainablePropertySetInfo ( aViewSettingsMap_Impl );
+@@ -583,6 +586,7 @@ void SwXViewSettings::_setSingleValue( const comphelper::PropertyInfo & rInfo, c
+         case  HANDLE_VIEWSET_HIDDEN_PARAGRAPHS     :   mpViewOption->SetShowHiddenPara(*o3tl::doAccess<bool>(rValue));   break;
+         case  HANDLE_VIEWSET_TABLE_BOUNDARIES      :   mpViewOption->SetTableBoundaries(*o3tl::doAccess<bool>(rValue));    break;
+         case  HANDLE_VIEWSET_TEXT_BOUNDARIES       :   mpViewOption->SetTextBoundaries(*o3tl::doAccess<bool>(rValue));    break;
++        case  HANDLE_VIEWSET_FORM_VIEW             :   mpViewOption->SetFormView(*o3tl::doAccess<bool>(rValue));    break;
+         case  HANDLE_VIEWSET_SMOOTH_SCROLLING      :   mpViewOption->SetSmoothScroll(*o3tl::doAccess<bool>(rValue)); break;
+         case  HANDLE_VIEWSET_SHOW_CONTENT_TIPS     :   mpViewOption->SetShowContentTips(*o3tl::doAccess<bool>(rValue)); break;
+         case  HANDLE_VIEWSET_IS_RASTER_VISIBLE     : mpViewOption->SetGridVisible(*o3tl::doAccess<bool>(rValue)); break;
+@@ -837,6 +841,7 @@ void SwXViewSettings::_getSingleValue( const comphelper::PropertyInfo & rInfo, u
+         case  HANDLE_VIEWSET_HIDDEN_PARAGRAPHS     :   bBoolVal = mpConstViewOption->IsShowHiddenPara();    break;
+         case  HANDLE_VIEWSET_TABLE_BOUNDARIES      :   bBoolVal = mpConstViewOption->IsTableBoundaries(); break;
+         case  HANDLE_VIEWSET_TEXT_BOUNDARIES       :   bBoolVal = mpConstViewOption->IsTextBoundaries(); break;
++        case  HANDLE_VIEWSET_FORM_VIEW             :   bBoolVal = mpConstViewOption->IsFormView(); break;
+         case  HANDLE_VIEWSET_SMOOTH_SCROLLING      :   bBoolVal = mpConstViewOption->IsSmoothScroll();  break;
+         case  HANDLE_VIEWSET_SHOW_CONTENT_TIPS     :   bBoolVal = mpConstViewOption->IsShowContentTips(); break;
+         case  HANDLE_VIEWSET_INLINECHANGES_TIPS    :   bBoolVal = mpConstViewOption->IsShowInlineTooltips(); break;

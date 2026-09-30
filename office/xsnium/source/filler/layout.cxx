@@ -34,6 +34,7 @@
 #include <com/sun/star/table/XTableRows.hpp>
 #include <com/sun/star/text/ControlCharacter.hpp>
 #include <com/sun/star/text/HoriOrientation.hpp>
+#include <com/sun/star/text/SizeType.hpp>
 #include <com/sun/star/text/TableColumnSeparator.hpp>
 #include <com/sun/star/text/TextContentAnchorType.hpp>
 #include <com/sun/star/text/VertOrientation.hpp>
@@ -792,8 +793,9 @@ private:
             uno::Reference<beans::XPropertySet> xRow(xRows->getByIndex(nRow), uno::UNO_QUERY);
             if (xRow.is())
             {
-                setIfPresent(xRow, u"IsAutoHeight"_ustr, uno::Any(true));
+                // "At least" this tall (IsAutoHeight would ignore the height altogether).
                 setIfPresent(xRow, u"Height"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(oHeight.value_or(0)))));
+                setIfPresent(xRow, u"SizeType"_ustr, uno::Any(text::SizeType::MIN));
             }
         }
 

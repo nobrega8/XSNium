@@ -16,11 +16,14 @@
 #include <com/sun/star/container/XIndexAccess.hpp>
 #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
 #include <com/sun/star/form/XFormsSupplier.hpp>
+#include <com/sun/star/frame/XController.hpp>
+#include <com/sun/star/frame/XModel.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/text/XTextDocument.hpp>
 #include <com/sun/star/table/XTableRows.hpp>
 #include <com/sun/star/text/XTextTable.hpp>
 #include <com/sun/star/text/XTextTablesSupplier.hpp>
+#include <com/sun/star/view/XViewSettingsSupplier.hpp>
 
 #include <osl/file.hxx>
 #include <unotools/tempfile.hxx>
@@ -167,6 +170,14 @@ CPPUNIT_TEST_FIXTURE(FillerTest, testControlsAreNotInDesignMode)
     loadTemplate(sampleXsnBytes());
     uno::Reference<beans::XPropertySet> xProps(mxComponent, uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT(!property<bool>(xProps, u"ApplyFormDesignMode"_ustr));
+}
+
+CPPUNIT_TEST_FIXTURE(FillerTest, testOnlyTheFieldsCanBeEdited)
+{
+    loadTemplate(sampleXsnBytes());
+    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<view::XViewSettingsSupplier> xSupplier(xModel->getCurrentController(), uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT(property<bool>(xSupplier->getViewSettings(), u"FormView"_ustr));
 }
 
 /** Real templates (never in the repository): each opens as a form with controls. */

@@ -22,10 +22,7 @@
 #include <com/sun/star/document/XDocumentEventBroadcaster.hpp>
 #include <com/sun/star/document/XDocumentEventListener.hpp>
 #include <com/sun/star/document/XExtendedFilterDetection.hpp>
-#include <com/sun/star/frame/DispatchHelper.hpp>
 #include <com/sun/star/frame/XController.hpp>
-#include <com/sun/star/frame/XDispatchProvider.hpp>
-#include <com/sun/star/frame/XFrame.hpp>
 #include <com/sun/star/view/XViewSettingsSupplier.hpp>
 #include <com/sun/star/document/XFilter.hpp>
 #include <com/sun/star/document/XImporter.hpp>
@@ -36,8 +33,6 @@
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/text/XTextDocument.hpp>
 #include <com/sun/star/uno/XComponentContext.hpp>
-#include <comphelper/processfactory.hxx>
-#include <comphelper/propertyvalue.hxx>
 #include <cppuhelper/implbase.hxx>
 #include <cppuhelper/supportsservice.hxx>
 #include <sal/log.hxx>
@@ -98,12 +93,10 @@ public:
         for (const OUString& rName : { u"ShowTableBoundaries"_ustr, u"ShowTextBoundaries"_ustr, u"ShowTextFieldBackground"_ustr })
             if (xSettings->getPropertySetInfo()->hasPropertyByName(rName))
                 xSettings->setPropertyValue(rName, uno::Any(false));
-        // Boundaries also frame every picture; they are not a view setting, only a command.
-        uno::Reference<frame::XDispatchProvider> xProvider(xModel->getCurrentController()->getFrame(), uno::UNO_QUERY);
-        if (xProvider.is())
-            frame::DispatchHelper::create(comphelper::getProcessComponentContext())
-                ->executeDispatch(xProvider, u".uno:ShowBoundaries"_ustr, u""_ustr, 0,
-                                  { comphelper::makePropertyValue(u"ShowBoundaries"_ustr, false) });
+        // The Filler fills the form in: only its fields can be edited, never the text or layout around them.
+        // Form view also draws no boundaries around pictures and frames.
+        if (xSettings->getPropertySetInfo()->hasPropertyByName(u"FormView"_ustr))
+            xSettings->setPropertyValue(u"FormView"_ustr, uno::Any(true));
     }
 
     void SAL_CALL disposing(const lang::EventObject&) override {}
