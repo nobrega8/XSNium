@@ -23,6 +23,9 @@ $(eval $(call gb_Library_use_libraries,xsnium,\
 ))
 
 $(eval $(call gb_Library_use_externals,xsnium,\
+    icu_headers \
+    icui18n \
+    icuuc \
     libxml2 \
     zlib \
 ))
@@ -35,6 +38,8 @@ $(eval $(call gb_Library_add_exception_objects,xsnium,\
     xsnium/source/manifest/manifest \
     xsnium/source/package/cab \
     xsnium/source/package/xsnpackage \
+    xsnium/source/runtime/runtime \
+    xsnium/source/runtime/validate \
     xsnium/source/schema/schema \
     xsnium/source/view/presentation \
     xsnium/source/view/style \
