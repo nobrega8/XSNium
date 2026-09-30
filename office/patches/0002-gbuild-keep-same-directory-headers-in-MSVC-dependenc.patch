@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: nobrega8 <afonsognobrega@gmail.com>
 Date: Tue, 29 Sep 2026 15:54:48 +0100
-Subject: [PATCH 2/5] gbuild: keep same-directory headers in MSVC dependencies
+Subject: [PATCH 2/6] gbuild: keep same-directory headers in MSVC dependencies
 
 With an 8.3 short SRCDIR (C:/Users/AFONSO~1.NOB/lo/LIBO-C~1), cl.exe
 still prints headers found next to the source file with their long path

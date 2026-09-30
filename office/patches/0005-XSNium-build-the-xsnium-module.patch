@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: nobrega8 <afonsognobrega@gmail.com>
 Date: Tue, 29 Sep 2026 16:23:03 +0100
-Subject: [PATCH 5/5] XSNium: build the xsnium module
+Subject: [PATCH 5/6] XSNium: build the xsnium module
 
 Register the xsnium module (InfoPath form support for XSNium Filler and
 Designer) and install its library with Writer. The module itself lives

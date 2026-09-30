@@ -12,11 +12,13 @@ $(eval $(call gb_Module_Module,xsnium))
 
 $(eval $(call gb_Module_add_targets,xsnium,\
     Library_xsnium \
+    Library_xsniumfiller \
 ))
 
 $(eval $(call gb_Module_add_check_targets,xsnium,\
     CppunitTest_xsnium_blobs \
     CppunitTest_xsnium_data \
+    CppunitTest_xsnium_filler \
     CppunitTest_xsnium_form \
     CppunitTest_xsnium_manifest \
     CppunitTest_xsnium_package \

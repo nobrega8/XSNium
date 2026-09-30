@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Wed, 30 Sep 2026 10:41:27 +0100
+Subject: [PATCH 6/6] XSNium: open InfoPath form templates in XSNium Filler
+
+Register the type and import filter for InfoPath form templates (.xsn),
+implemented by the xsniumfiller library of the xsnium module.
+
+Change-Id: I4c2147af808943050c97cc682b433f622d3b815d
+---
+ Repository.mk                                 |  1 +
+ filter/Configuration_filter.mk                |  2 ++
+ .../filters/XSNium_InfoPath_Form_Template.xcu | 20 +++++++++++++++++++
+ .../writer_XSNium_InfoPath_Form_Template.xcu  | 19 ++++++++++++++++++
+ 4 files changed, 42 insertions(+)
+ create mode 100644 filter/source/config/fragments/filters/XSNium_InfoPath_Form_Template.xcu
+ create mode 100644 filter/source/config/fragments/types/writer_XSNium_InfoPath_Form_Template.xcu
+
+diff --git a/Repository.mk b/Repository.mk
+index 7fbc35885..efa75caaa 100644
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -576,6 +576,7 @@ $(eval $(call gb_Helper_register_libraries_for_install,OOOLIBS,writer, \
+ 	sw_writerfilter \
+ 	$(call gb_Helper_optional,DBCONNECTIVITY,writer) \
+ 	xsnium \
++	xsniumfiller \
+ ))
+ 
+ $(eval $(call gb_Helper_register_plugins_for_install,OOOLIBS,writer, \
+diff --git a/filter/Configuration_filter.mk b/filter/Configuration_filter.mk
+index 78405f6f6..6960554e7 100644
+--- a/filter/Configuration_filter.mk
++++ b/filter/Configuration_filter.mk
+@@ -337,6 +337,7 @@ $(eval $(call filter_Configuration_add_types,fcfg_langpack,fcfg_writer_types.xcu
+ 	writer_WriteNow \
+ 	writer_AbiWord_Document \
+ 	writer_T602_Document \
++	writer_XSNium_InfoPath_Form_Template \
+ 	writer_LotusWordPro_Document \
+ 	generic_Text \
+ 	writer_MIZI_Hwp_97 \
+@@ -388,6 +389,7 @@ $(eval $(call filter_Configuration_add_filters,fcfg_langpack,fcfg_writer_filters
+ 	WriteNow \
+ 	AbiWord \
+ 	T602Document \
++	XSNium_InfoPath_Form_Template \
+ 	LotusWordPro \
+ 	Text \
+ 	Text__encoded_ \
+diff --git a/filter/source/config/fragments/filters/XSNium_InfoPath_Form_Template.xcu b/filter/source/config/fragments/filters/XSNium_InfoPath_Form_Template.xcu
+new file mode 100644
+index 000000000..cdaaedf67
+--- /dev/null
++++ b/filter/source/config/fragments/filters/XSNium_InfoPath_Form_Template.xcu
+@@ -0,0 +1,20 @@
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++    <node oor:name="XSNium_InfoPath_Form_Template" oor:op="replace">
++        <prop oor:name="Flags"><value>IMPORT ALIEN 3RDPARTYFILTER PREFERRED</value></prop>
++        <prop oor:name="UIComponent"/>
++        <prop oor:name="FilterService"><value>com.sun.star.comp.Writer.XsniumImportFilter</value></prop>
++        <prop oor:name="UserData"><value></value></prop>
++        <prop oor:name="UIName">
++            <value xml:lang="en-US">InfoPath Form Template</value>
++        </prop>
++        <prop oor:name="FileFormatVersion"><value>0</value></prop>
++        <prop oor:name="Type"><value>writer_XSNium_InfoPath_Form_Template</value></prop>
++        <prop oor:name="TemplateName"/>
++        <prop oor:name="DocumentService"><value>com.sun.star.text.TextDocument</value></prop>
++    </node>
+diff --git a/filter/source/config/fragments/types/writer_XSNium_InfoPath_Form_Template.xcu b/filter/source/config/fragments/types/writer_XSNium_InfoPath_Form_Template.xcu
+new file mode 100644
+index 000000000..4b5d6c659
+--- /dev/null
++++ b/filter/source/config/fragments/types/writer_XSNium_InfoPath_Form_Template.xcu
+@@ -0,0 +1,19 @@
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++    <node oor:name="writer_XSNium_InfoPath_Form_Template" oor:op="replace" >
++        <prop oor:name="DetectService"><value>com.sun.star.comp.Writer.XsniumImportFilter</value></prop>
++        <prop oor:name="URLPattern"/>
++        <prop oor:name="Extensions"><value>xsn</value></prop>
++        <prop oor:name="MediaType"><value>application/vnd.ms-infopath</value></prop>
++        <prop oor:name="Preferred"><value>true</value></prop>
++        <prop oor:name="PreferredFilter"><value>XSNium_InfoPath_Form_Template</value></prop>
++        <prop oor:name="UIName">
++            <value>InfoPath Form Template</value>
++        </prop>
++        <prop oor:name="ClipboardFormat"/>
++    </node>
