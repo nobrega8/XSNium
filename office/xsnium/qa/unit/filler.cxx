@@ -23,6 +23,7 @@
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/text/XTextDocument.hpp>
+#include <com/sun/star/table/BorderLine2.hpp>
 #include <com/sun/star/table/XTableRows.hpp>
 #include <com/sun/star/text/XTextTable.hpp>
 #include <com/sun/star/text/XTextTablesSupplier.hpp>
@@ -183,6 +184,33 @@ CPPUNIT_TEST_FIXTURE(FillerTest, testOnlyTheFieldsCanBeEdited)
     uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<view::XViewSettingsSupplier> xSupplier(xModel->getCurrentController(), uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT(property<bool>(xSupplier->getViewSettings(), u"FormView"_ustr));
+}
+
+/**
+ * Table cells as IE lays out InfoPath's tables: with "border-collapse: collapse" two neighbouring cells share one
+ * border, and a cell's top and bottom padding stays its own (Writer would give it to the whole row).
+ */
+CPPUNIT_TEST_FIXTURE(FillerTest, testCellsKeepTheirBordersAndPadding)
+{
+    const std::string aView = replaceAll(
+        replaceAll(SAMPLE_VIEW, "TD.cell { PADDING-LEFT: 7px;", "TD.cell { PADDING-LEFT: 7px; PADDING-TOP: 3px; BORDER-BOTTOM: 1px solid #b3b3b3;"),
+        "<tr><td><span", R"(<tr><td style="BORDER-TOP: 1px solid #b3b3b3"><span)");
+    loadTemplate(sampleXsnBytes({}, aView));
+    uno::Reference<text::XTextTablesSupplier> xTables(mxComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<text::XTextTable> xTable(
+        uno::Reference<container::XIndexAccess>(xTables->getTextTables(), uno::UNO_QUERY_THROW)->getByIndex(0), uno::UNO_QUERY_THROW);
+    uno::Reference<beans::XPropertySet> xHeader(xTable->getCellByName(u"A1"_ustr), uno::UNO_QUERY_THROW);
+    uno::Reference<beans::XPropertySet> xRow(xTable->getCellByName(u"A2"_ustr), uno::UNO_QUERY_THROW);
+
+    // One line between the header and the row, drawn by the header.
+    CPPUNIT_ASSERT(property<table::BorderLine2>(xHeader, u"BottomBorder"_ustr).LineWidth > 0);
+    CPPUNIT_ASSERT_EQUAL(sal_uInt32(0), property<table::BorderLine2>(xRow, u"TopBorder"_ustr).LineWidth);
+
+    // The header's top padding is spacing above its paragraph, not a distance the row would share.
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), property<sal_Int32>(xHeader, u"TopBorderDistance"_ustr));
+    uno::Reference<container::XEnumerationAccess> xText(xTable->getCellByName(u"A1"_ustr), uno::UNO_QUERY_THROW);
+    uno::Reference<beans::XPropertySet> xParagraph(xText->createEnumeration()->nextElement(), uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(79), property<sal_Int32>(xParagraph, u"ParaTopMargin"_ustr)); // 3px
 }
 
 /** Text lines are laid out in whole pixels, as IE lays the form out (patch 0008). */

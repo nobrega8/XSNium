@@ -23,9 +23,11 @@
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/beans/XPropertySetInfo.hpp>
 #include <com/sun/star/container/XNameAccess.hpp>
+#include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/drawing/TextVerticalAdjust.hpp>
 #include <com/sun/star/drawing/XControlShape.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+#include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
 #include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
 #include <com/sun/star/table/BorderLine2.hpp>
@@ -63,6 +65,7 @@
 #include <vcl/virdev.hxx>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <tuple>
@@ -411,6 +414,9 @@ LineMetrics lineMetricsOf(const CharFormat& rFormat, const OUString& rFallbackFa
     return aLine;
 }
 
+/** A table cell's borders: top, right, bottom, left. */
+using CellBorders = std::array<std::optional<table::BorderLine2>, 4>;
+
 /** Paragraph formatting that holds for every paragraph of a block. */
 struct ParaFormat
 {
@@ -528,6 +534,9 @@ private:
         // Not "Table Heading", which Writer gives the first row of a table: a view's cells are all alike.
         setIfPresent(xProps, u"ParaStyleName"_ustr, uno::Any(u"Standard"_ustr));
         setIfPresent(xProps, u"ParaAdjust"_ustr, uno::Any(static_cast<sal_Int16>(rTarget.para.adjust)));
+        // The paragraph's own font gives a line its least height. Text sets its font on itself, so this only
+        // matters for lines that hold no text: in IE's quirks mode a line of fields alone is as tall as its fields.
+        setIfPresent(xProps, u"CharHeight"_ustr, uno::Any(1.0f));
         setIfPresent(xProps, u"ParaLeftMargin"_ustr, uno::Any(rTarget.para.leftIndent));
         setIfPresent(xProps, u"ParaRightMargin"_ustr, uno::Any(rTarget.para.rightIndent));
         if (rTarget.para.background)
@@ -901,12 +910,51 @@ private:
             }
         }
 
-        for (const Placed& rPlaced : aPlaced)
+        // Each cell's borders. With "border-collapse: collapse" (all of InfoPath's tables) neighbouring cells share
+        // one border: of two borders on the same edge the wider stays, the upper or left one when they are alike.
+        static constexpr std::u16string_view SIDES[] = { u"top", u"right", u"bottom", u"left" };
+        std::vector<CellBorders> aBorders(aPlaced.size());
+        for (size_t i = 0; i < aPlaced.size(); ++i)
+            for (int nSide = 0; nSide < 4; ++nSide)
+                aBorders[i][nSide] = border(m_aCascade.of(*aPlaced[i].cell), SIDES[nSide]);
+        if (const OUString* pCollapse = find(rStyle, u"border-collapse"); pCollapse && *pCollapse == "collapse")
         {
+            std::vector<std::vector<sal_Int32>> aOwner(nRowCount, std::vector<sal_Int32>(nColumns, -1));
+            for (size_t i = 0; i < aPlaced.size(); ++i)
+                for (sal_Int32 r = aPlaced[i].row; r < aPlaced[i].row + aPlaced[i].rows; ++r)
+                    for (sal_Int32 c = aPlaced[i].column; c < std::min(aPlaced[i].column + aPlaced[i].columns, nColumns); ++c)
+                        aOwner[r][c] = static_cast<sal_Int32>(i);
+            const auto collapse = [](std::optional<table::BorderLine2>& rFirst, std::optional<table::BorderLine2>& rSecond) {
+                if (!rFirst || !rSecond)
+                    return;
+                if (rSecond->LineWidth > rFirst->LineWidth)
+                    rFirst.reset();
+                else
+                    rSecond.reset();
+            };
+            for (size_t i = 0; i < aPlaced.size(); ++i)
+            {
+                const Placed& rPlaced = aPlaced[i];
+                const sal_Int32 nBelow = rPlaced.row + rPlaced.rows;
+                if (nBelow < nRowCount)
+                    for (sal_Int32 c = rPlaced.column; c < std::min(rPlaced.column + rPlaced.columns, nColumns); ++c)
+                        if (const sal_Int32 n = aOwner[nBelow][c]; n >= 0 && n != static_cast<sal_Int32>(i))
+                            collapse(aBorders[i][2], aBorders[n][0]);
+                const sal_Int32 nRight = rPlaced.column + rPlaced.columns;
+                if (nRight < nColumns)
+                    for (sal_Int32 r = rPlaced.row; r < nBelow; ++r)
+                        if (const sal_Int32 n = aOwner[r][nRight]; n >= 0 && n != static_cast<sal_Int32>(i))
+                            collapse(aBorders[i][1], aBorders[n][3]);
+            }
+        }
+
+        for (size_t i = 0; i < aPlaced.size(); ++i)
+        {
+            const Placed& rPlaced = aPlaced[i];
             double fCellWidth = 0;
-            for (sal_Int32 i = rPlaced.column; i < std::min(rPlaced.column + rPlaced.columns, nColumns); ++i)
-                fCellWidth += aColumnWidths[i] / fColumnsSum * fTableWidth;
-            cell(xTable, *rPlaced.cell, *aRows[rPlaced.row], cellName(rPlaced.column, rPlaced.row), fCellWidth);
+            for (sal_Int32 c = rPlaced.column; c < std::min(rPlaced.column + rPlaced.columns, nColumns); ++c)
+                fCellWidth += aColumnWidths[c] / fColumnsSum * fTableWidth;
+            cell(xTable, *rPlaced.cell, *aRows[rPlaced.row], cellName(rPlaced.column, rPlaced.row), fCellWidth, aBorders[i]);
         }
 
         // Merge spanned cells. A merge only renames the cells to its right in its rows, so merging from the
@@ -927,7 +975,7 @@ private:
     }
 
     void cell(const uno::Reference<text::XTextTable>& rTable, const RenderNode& rCell, const RenderNode& rRow, const OUString& rName,
-              double fWidth)
+              double fWidth, const CellBorders& rBorders)
     {
         const ComputedStyle& rStyle = m_aCascade.of(rCell);
         uno::Reference<beans::XPropertySet> xCell(rTable->getCellByName(rName), uno::UNO_QUERY_THROW);
@@ -946,10 +994,13 @@ private:
         double fPadding[4] = { 1 * MM100_PER_PX, 1 * MM100_PER_PX, 1 * MM100_PER_PX, 1 * MM100_PER_PX };
         for (int i = 0; i < 4; ++i)
         {
-            setIfPresent(xCell, BORDERS[i], uno::Any(border(rStyle, SIDES[i]).value_or(table::BorderLine2())));
+            setIfPresent(xCell, BORDERS[i], uno::Any(rBorders[i].value_or(table::BorderLine2())));
             if (std::optional<double> oPadding = lengthOf(rStyle, OUString("padding-" + OUString(SIDES[i])), fWidth))
                 fPadding[i] = std::max(0.0, *oPadding);
-            setIfPresent(xCell, DISTANCES[i], uno::Any(static_cast<sal_Int32>(std::lround(fPadding[i]))));
+            // Top and bottom padding go on the cell's paragraphs (padInside): Writer would give a cell's top and
+            // bottom distance to the other cells of its row as well.
+            const bool bVertical = i == 0 || i == 2;
+            setIfPresent(xCell, DISTANCES[i], uno::Any(static_cast<sal_Int32>(bVertical ? 0 : std::lround(fPadding[i]))));
         }
         // Table cells in a view are vertically centred unless they say otherwise.
         sal_Int16 nVertical = text::VertOrientation::CENTER;
@@ -976,6 +1027,54 @@ private:
         applyParagraph(aCell);
         nodes(rCell.children, aCell);
         finish(aCell);
+        padInside(xCell, xText, fPadding[0], fPadding[2]);
+    }
+
+    /**
+     * A cell's top and bottom padding as spacing above its first paragraph and below its last, added to their own
+     * as CSS adds a child's margin to its cell's padding. A cell that starts with a table keeps its top padding
+     * as the cell's distance, and one that ends with a table its bottom padding: Writer does not show the empty
+     * paragraph after a table at the end of a cell, nor its spacing.
+     */
+    static void padInside(const uno::Reference<beans::XPropertySet>& rCell, const uno::Reference<text::XText>& rText,
+                          double fTop, double fBottom)
+    {
+        const auto add = [](const uno::Reference<beans::XPropertySet>& rParagraph, const OUString& rProperty, double f) {
+            sal_Int32 nSpace = 0;
+            rParagraph->getPropertyValue(rProperty) >>= nSpace;
+            rParagraph->setPropertyValue(rProperty, uno::Any(static_cast<sal_Int32>(nSpace + std::lround(f))));
+        };
+        uno::Reference<container::XEnumeration> xParagraphs
+            = uno::Reference<container::XEnumerationAccess>(rText, uno::UNO_QUERY_THROW)->createEnumeration();
+        uno::Reference<beans::XPropertySet> xFirst, xLast;
+        bool bFirst = true;
+        bool bAfterTable = false;
+        while (xParagraphs->hasMoreElements())
+        {
+            uno::Reference<lang::XServiceInfo> xElement(xParagraphs->nextElement(), uno::UNO_QUERY);
+            const bool bParagraph = xElement.is() && xElement->supportsService(u"com.sun.star.text.Paragraph"_ustr);
+            if (bFirst && bParagraph)
+                xFirst.set(xElement, uno::UNO_QUERY);
+            bFirst = false;
+            const bool bEmptyAfterTable
+                = bParagraph && bAfterTable && uno::Reference<text::XTextRange>(xElement, uno::UNO_QUERY_THROW)->getString().isEmpty();
+            xLast.set(bParagraph && !bEmptyAfterTable ? xElement : nullptr, uno::UNO_QUERY);
+            bAfterTable = !bParagraph;
+        }
+        if (fTop > 0)
+        {
+            if (xFirst.is())
+                add(xFirst, u"ParaTopMargin"_ustr, fTop);
+            else
+                setIfPresent(rCell, u"TopBorderDistance"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(fTop))));
+        }
+        if (fBottom > 0)
+        {
+            if (xLast.is())
+                add(xLast, u"ParaBottomMargin"_ustr, fBottom);
+            else
+                setIfPresent(rCell, u"BottomBorderDistance"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(fBottom))));
+        }
     }
 
     // --- "click to add" areas ----------------------------------------------------------------------
