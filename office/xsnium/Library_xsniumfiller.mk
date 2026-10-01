@@ -26,6 +26,7 @@ $(eval $(call gb_Library_use_libraries,xsniumfiller,\
     i18nlangtag \
     sal \
     utl \
+    vcl \
     xsnium \
 ))
 

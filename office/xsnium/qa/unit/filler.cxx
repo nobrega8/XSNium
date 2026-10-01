@@ -13,7 +13,9 @@
 #include "testcab.hxx"
 
 #include <com/sun/star/beans/XPropertySet.hpp>
+#include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/container/XIndexAccess.hpp>
+#include <com/sun/star/drawing/XControlShape.hpp>
 #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
 #include <com/sun/star/form/XFormsSupplier.hpp>
 #include <com/sun/star/frame/XController.hpp>
@@ -23,11 +25,13 @@
 #include <com/sun/star/table/XTableRows.hpp>
 #include <com/sun/star/text/XTextTable.hpp>
 #include <com/sun/star/text/XTextTablesSupplier.hpp>
+#include <com/sun/star/text/VertOrientation.hpp>
 #include <com/sun/star/view/XViewSettingsSupplier.hpp>
 
 #include <osl/file.hxx>
 #include <unotools/tempfile.hxx>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -178,6 +182,79 @@ CPPUNIT_TEST_FIXTURE(FillerTest, testOnlyTheFieldsCanBeEdited)
     uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<view::XViewSettingsSupplier> xSupplier(xModel->getCurrentController(), uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT(property<bool>(xSupplier->getViewSettings(), u"FormView"_ustr));
+}
+
+/**
+ * Vertical metrics as IE lays out InfoPath's stylesheet: a section's transparent border takes its space, and a
+ * text box is an inline block whose text sits on the line's baseline, with its top margin, border and padding
+ * above it and only what its style leaves below.
+ */
+CPPUNIT_TEST_FIXTURE(FillerTest, testBoxesKeepTheirSpaceAsInInternetExplorer)
+{
+    const std::string aView = replaceAll(
+        replaceAll(SAMPLE_VIEW, ".optionalPlaceholder { COLOR: #333333 }",
+                   ".xdSection{border:1pt solid transparent} "
+                   ".xdTextBox{display:inline-block;padding:1px;margin:1px;border:1pt solid #dcdcdc}"),
+        R"(<div>Title <span xd:xctname="PlainText")",
+        R"(<div class="xdSection">Title <span class="xdTextBox" style="MARGIN-BOTTOM: 0px; PADDING-BOTTOM: 0px" xd:xctname="PlainText")");
+    loadTemplate(sampleXsnBytes({}, aView));
+
+    constexpr sal_Int32 PX = 26; // 1/100 mm
+    // IE draws borders in whole pixels: 1pt is 1px.
+    constexpr sal_Int32 BORDER = PX;
+    uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<container::XEnumerationAccess> xParagraphs(xDocument->getText(), uno::UNO_QUERY_THROW);
+    uno::Reference<container::XEnumeration> xEnum = xParagraphs->createEnumeration();
+    int nFound = 0;
+    while (xEnum->hasMoreElements())
+    {
+        uno::Reference<text::XTextRange> xParagraph(xEnum->nextElement(), uno::UNO_QUERY);
+        if (!xParagraph.is())
+            continue;
+        uno::Reference<beans::XPropertySet> xProps(xParagraph, uno::UNO_QUERY_THROW);
+        if (xParagraph->getString().startsWith(u"Title"))
+        {
+            ++nFound;
+            CPPUNIT_ASSERT_EQUAL(BORDER, property<sal_Int32>(xProps, u"ParaTopMargin"_ustr));
+            CPPUNIT_ASSERT_EQUAL(BORDER, property<sal_Int32>(xProps, u"ParaBottomMargin"_ustr));
+        }
+        else if (xParagraph->getString().startsWith(u"Note"))
+        {
+            // The next block's paragraph does not inherit the section's spacing.
+            ++nFound;
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(0), property<sal_Int32>(xProps, u"ParaTopMargin"_ustr));
+            CPPUNIT_ASSERT_EQUAL(sal_Int32(0), property<sal_Int32>(xProps, u"ParaBottomMargin"_ustr));
+        }
+    }
+    CPPUNIT_ASSERT_EQUAL(2, nFound);
+
+    uno::Reference<drawing::XDrawPageSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<container::XIndexAccess> xShapes(xSupplier->getDrawPage(), uno::UNO_QUERY_THROW);
+    uno::Reference<beans::XPropertySet> xTitle;
+    for (sal_Int32 i = 0; i < xShapes->getCount() && !xTitle.is(); ++i)
+    {
+        uno::Reference<drawing::XControlShape> xShape(xShapes->getByIndex(i), uno::UNO_QUERY);
+        if (!xShape.is())
+            continue;
+        uno::Reference<beans::XPropertySet> xModel(xShape->getControl(), uno::UNO_QUERY);
+        if (xModel.is() && property<OUString>(xModel, u"Tag"_ustr) == "/my:root/my:title")
+            xTitle.set(xShape, uno::UNO_QUERY);
+    }
+    CPPUNIT_ASSERT(xTitle.is());
+    CPPUNIT_ASSERT_EQUAL(text::VertOrientation::NONE, property<sal_Int16>(xTitle, u"VertOrient"_ustr));
+    CPPUNIT_ASSERT_EQUAL(PX, property<sal_Int32>(xTitle, u"TopMargin"_ustr));
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), property<sal_Int32>(xTitle, u"BottomMargin"_ustr));
+    // The box's top is its margin, border, padding and the font's ascent above the baseline.
+    const sal_Int32 nAbove = -property<sal_Int32>(xTitle, u"VertOrientPosition"_ustr);
+    const sal_Int32 nAscent = nAbove - (PX + BORDER + PX);
+    // The view names no font size: 12pt, 16px. IE measures the line in whole pixels.
+    CPPUNIT_ASSERT_DOUBLES_EQUAL(std::round(nAbove / (2540.0 / 96)), nAbove / (2540.0 / 96), 0.1);
+    CPPUNIT_ASSERT_MESSAGE(OString::number(nAscent).getStr(), nAscent > 10 * PX && nAscent < 20 * PX);
+    // Below the baseline hang only the descent and the bottom border: the box is the font's line, 1px of padding
+    // and two borders.
+    const sal_Int32 nHeight = uno::Reference<drawing::XShape>(xTitle, uno::UNO_QUERY_THROW)->getSize().Height;
+    const sal_Int32 nDescent = nHeight - (nAscent + PX + 2 * BORDER);
+    CPPUNIT_ASSERT_MESSAGE(OString::number(nDescent).getStr(), nDescent > 0 && nDescent < nAscent / 2);
 }
 
 /** Real templates (never in the repository): each opens as a form with controls. */

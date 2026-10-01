@@ -56,9 +56,15 @@
 #include <rtl/math.hxx>
 #include <unotools/localedatawrapper.hxx>
 #include <unotools/syslocale.hxx>
+#include <tools/mapunit.hxx>
+#include <vcl/metric.hxx>
+#include <vcl/svapp.hxx>
+#include <vcl/virdev.hxx>
 
 #include <algorithm>
 #include <cmath>
+#include <map>
+#include <tuple>
 
 using namespace css;
 
@@ -276,20 +282,39 @@ OUString columnName(sal_Int32 nColumn)
 
 OUString cellName(sal_Int32 nColumn, sal_Int32 nRow) { return columnName(nColumn) + OUString::number(nRow + 1); }
 
-/** One side's border from the computed style; nothing when the side has no visible border. */
-std::optional<table::BorderLine2> border(const ComputedStyle& rStyle, std::u16string_view aSide)
+/**
+ * The space one side's border takes, seen or not; 0 when the side has no border style. IE draws borders in whole
+ * pixels, at least one: "1pt" is 1px, not 1.33px.
+ */
+double borderWidth(const ComputedStyle& rStyle, std::u16string_view aSide)
 {
     const OUString aPrefix = "border-" + OUString(aSide);
     const OUString* pStyle = find(rStyle, OUString(aPrefix + "-style"));
     if (!pStyle || *pStyle == "none" || *pStyle == "hidden")
-        return std::nullopt;
-    // InfoPath gives sections "1pt solid transparent": a border that takes space but is not seen.
-    if (const OUString* pColour = find(rStyle, OUString(aPrefix + "-color")); pColour && pColour->equalsIgnoreAsciiCase("transparent"))
-        return std::nullopt;
+        return 0;
     const OUString* pWidth = find(rStyle, OUString(aPrefix + "-width"));
     const double fWidth = pWidth ? length(*pWidth, 0).value_or(3 * MM100_PER_PX) : 3 * MM100_PER_PX;
     if (fWidth <= 0)
+        return 0;
+    return std::max(1.0, std::round(fWidth / MM100_PER_PX)) * MM100_PER_PX;
+}
+
+/** Whether a side's border is transparent: it takes space but is not seen. */
+bool isTransparentBorder(const ComputedStyle& rStyle, std::u16string_view aSide)
+{
+    const OUString* pColour = find(rStyle, OUString("border-" + OUString(aSide) + "-color"));
+    return pColour && pColour->equalsIgnoreAsciiCase("transparent");
+}
+
+/** One side's border from the computed style; nothing when the side has no visible border. */
+std::optional<table::BorderLine2> border(const ComputedStyle& rStyle, std::u16string_view aSide)
+{
+    const OUString aPrefix = "border-" + OUString(aSide);
+    const double fWidth = borderWidth(rStyle, aSide);
+    // InfoPath gives sections "1pt solid transparent": the caller keeps its space (transparentBorder).
+    if (fWidth <= 0 || isTransparentBorder(rStyle, aSide))
         return std::nullopt;
+    const OUString* pStyle = find(rStyle, OUString(aPrefix + "-style"));
     table::BorderLine2 aLine;
     aLine.Color = colourOf(rStyle, OUString(aPrefix + "-color")).value_or(colourOf(rStyle, u"color").value_or(0));
     aLine.LineWidth = static_cast<sal_uInt32>(std::lround(fWidth));
@@ -303,6 +328,12 @@ std::optional<table::BorderLine2> border(const ComputedStyle& rStyle, std::u16st
     else
         aLine.LineStyle = table::BorderLineStyle::SOLID;
     return aLine;
+}
+
+/** The space a transparent border takes on one side, 0 when that side's border is seen or absent. */
+double transparentBorder(const ComputedStyle& rStyle, std::u16string_view aSide)
+{
+    return isTransparentBorder(rStyle, aSide) ? borderWidth(rStyle, aSide) : 0;
 }
 
 /** Character formatting from a computed style. */
@@ -331,6 +362,49 @@ CharFormat charFormatOf(const ComputedStyle& rStyle)
     if (const OUString* pFamily = find(rStyle, u"font-family"))
         aFormat.family = firstFamily(*pFamily);
     return aFormat;
+}
+
+/** A line of a font, in 1/100 mm: above and below the baseline. */
+struct LineMetrics
+{
+    double ascent = 0;
+    double descent = 0;
+};
+
+/** The font's own ascent and descent, measured at a high resolution so that no rounding to screen pixels creeps in. */
+LineMetrics exactLineMetricsOf(const OUString& rFamily, const CharFormat& rFormat)
+{
+    SolarMutexGuard aGuard;
+    ScopedVclPtrInstance<VirtualDevice> pDevice;
+    pDevice->SetReferenceDevice(VirtualDevice::RefDevMode::Dpi600);
+    pDevice->SetMapMode(MapMode(MapUnit::Map100thMM));
+    vcl::Font aFont(rFamily, Size(0, static_cast<tools::Long>(std::lround(rFormat.height * MM100_PER_PT))));
+    aFont.SetWeight(rFormat.bold ? WEIGHT_BOLD : WEIGHT_NORMAL);
+    pDevice->SetFont(aFont);
+    const FontMetric aMetric = pDevice->GetFontMetric();
+    if (aMetric.GetAscent() + aMetric.GetDescent() <= 0)
+        return { rFormat.height * MM100_PER_PT * 0.95, rFormat.height * MM100_PER_PT * 0.25 };
+    return { static_cast<double>(aMetric.GetAscent()), static_cast<double>(aMetric.GetDescent()) };
+}
+
+/**
+ * A line of a font as IE lays it out ("line-height: normal"). IE works in whole pixels at 96 DPI: the font's size
+ * is rounded to pixels, then its ascent and descent (Calibri 10pt is 13px, a line of 12 + 3).
+ */
+LineMetrics lineMetricsOf(const CharFormat& rFormat, const OUString& rFallbackFamily)
+{
+    static std::map<std::tuple<OUString, float, bool>, LineMetrics> s_aCache;
+    const OUString aFamily = rFormat.family.isEmpty() ? rFallbackFamily : rFormat.family;
+    const auto aKey = std::make_tuple(aFamily, rFormat.height, rFormat.bold);
+    if (const auto it = s_aCache.find(aKey); it != s_aCache.end())
+        return it->second;
+    const LineMetrics aExact = exactLineMetricsOf(aFamily, rFormat);
+    const double fSize = rFormat.height * MM100_PER_PT / MM100_PER_PX;
+    const double fScale = std::max(1.0, std::round(fSize)) / fSize;
+    const LineMetrics aLine{ std::round(aExact.ascent / MM100_PER_PX * fScale) * MM100_PER_PX,
+                             std::round(aExact.descent / MM100_PER_PX * fScale) * MM100_PER_PX };
+    s_aCache.emplace(aKey, aLine);
+    return aLine;
 }
 
 /** Paragraph formatting that holds for every paragraph of a block. */
@@ -422,6 +496,9 @@ private:
                 setIfPresent(xStyle, u"CharFontName"_ustr, uno::Any(aRootFont.family));
             setIfPresent(xStyle, u"CharHeight"_ustr, uno::Any(aRootFont.height));
             setIfPresent(xStyle, u"CharColor"_ustr, uno::Any(aRootFont.color));
+            // Text that names no font is in the paragraphs' font.
+            if (rName == "Standard")
+                xStyle->getPropertyValue(u"CharFontName"_ustr) >>= m_aRootFamily;
         }
         return fViewWidth;
     }
@@ -468,6 +545,10 @@ private:
             return;
         rTarget.text->insertControlCharacter(rTarget.cursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
         rTarget.paragraphUsed = false;
+        // The new paragraph is a copy of the one before: it must not repeat that block's spacing.
+        uno::Reference<beans::XPropertySet> xProps(rTarget.cursor, uno::UNO_QUERY_THROW);
+        xProps->setPropertyValue(u"ParaTopMargin"_ustr, uno::Any(sal_Int32(0)));
+        xProps->setPropertyValue(u"ParaBottomMargin"_ustr, uno::Any(sal_Int32(0)));
         applyParagraph(rTarget);
     }
 
@@ -603,8 +684,9 @@ private:
         }
         if (std::optional<sal_Int32> oBackground = colourOf(rStyle, u"background-color"))
             aInner.background = oBackground;
-        const double fPadLeft = lengthOf(rStyle, u"padding-left", fOuterWidth).value_or(0);
-        const double fPadRight = lengthOf(rStyle, u"padding-right", fOuterWidth).value_or(0);
+        // A transparent border is not drawn but takes its space, as padding would.
+        const double fPadLeft = lengthOf(rStyle, u"padding-left", fOuterWidth).value_or(0) + transparentBorder(rStyle, u"left");
+        const double fPadRight = lengthOf(rStyle, u"padding-right", fOuterWidth).value_or(0) + transparentBorder(rStyle, u"right");
         const double fMarginLeft = std::max(0.0, lengthOf(rStyle, u"margin-left", fOuterWidth).value_or(0));
         const double fMarginRight = std::max(0.0, lengthOf(rStyle, u"margin-right", fOuterWidth).value_or(0));
         aInner.leftIndent += static_cast<sal_Int32>(std::lround(fPadLeft + fMarginLeft));
@@ -621,9 +703,7 @@ private:
         flushBreak(rTarget);
         if (!rTarget.paragraphUsed)
             applyParagraph(rTarget);
-        if (std::optional<double> oTop = lengthOf(rStyle, u"margin-top", fOuterWidth); oTop && *oTop > 0)
-            uno::Reference<beans::XPropertySet>(rTarget.cursor, uno::UNO_QUERY_THROW)
-                ->setPropertyValue(u"ParaTopMargin"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(*oTop))));
+        spaceAround(rTarget, u"ParaTopMargin"_ustr, lengthOf(rStyle, u"margin-top", fOuterWidth), transparentBorder(rStyle, u"top"));
 
         if (rNode.type == ControlType::RepeatingSection && rNode.rows)
             for (const RenderRow& rRow : *rNode.rows)
@@ -634,12 +714,26 @@ private:
         else
             nodes(rNode.children, rTarget);
 
-        if (std::optional<double> oBottom = lengthOf(rStyle, u"margin-bottom", fOuterWidth); oBottom && *oBottom > 0)
-            uno::Reference<beans::XPropertySet>(rTarget.cursor, uno::UNO_QUERY_THROW)
-                ->setPropertyValue(u"ParaBottomMargin"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(*oBottom))));
+        spaceAround(rTarget, u"ParaBottomMargin"_ustr, lengthOf(rStyle, u"margin-bottom", fOuterWidth),
+                    transparentBorder(rStyle, u"bottom"));
         rTarget.para = aOuter;
         rTarget.width = fOuterWidth;
         rTarget.pendingBreak = true;
+    }
+
+    /**
+     * The spacing above or below the current paragraph for a block: the block's margin replaces what an inner
+     * block set, and its transparent border adds to it, since borders do not collapse as margins do.
+     */
+    static void spaceAround(Target& rTarget, const OUString& rProperty, std::optional<double> oMargin, double fBorder)
+    {
+        uno::Reference<beans::XPropertySet> xProps(rTarget.cursor, uno::UNO_QUERY_THROW);
+        sal_Int32 nSpace = 0;
+        xProps->getPropertyValue(rProperty) >>= nSpace;
+        if (oMargin && *oMargin > 0)
+            nSpace = static_cast<sal_Int32>(std::lround(*oMargin));
+        nSpace += static_cast<sal_Int32>(std::lround(fBorder));
+        xProps->setPropertyValue(rProperty, uno::Any(nSpace));
     }
 
     void inlineChildren(const RenderNode& rNode, Target& rTarget) { nodes(rNode.children, rTarget); }
@@ -1019,12 +1113,18 @@ private:
         const double fEm = aFont.height * MM100_PER_PT;
         OUString aService;
         double fWidth = 5000;
-        // A text box as InfoPath draws it: a line of the field's font (1.2 em), 1px padding and its border each side
-        // (none where the view gives no border style).
+        // A field as InfoPath draws it, an inline block: a line of its font, then its padding and border (none where
+        // the view gives no border style) and its margins, each as the view's stylesheet and the field's style say.
         const std::optional<table::BorderLine2> oTopBorder = border(rStyle, u"top");
         const std::optional<table::BorderLine2> oBottomBorder = border(rStyle, u"bottom");
-        const double fBorders = (oTopBorder ? oTopBorder->LineWidth : 0) + (oBottomBorder ? oBottomBorder->LineWidth : 0);
-        double fHeight = fEm * 1.2 + 2 * MM100_PER_PX + fBorders;
+        const double fBorderTop = oTopBorder ? oTopBorder->LineWidth : 0;
+        const double fBorders = fBorderTop + (oBottomBorder ? oBottomBorder->LineWidth : 0);
+        const double fPadTop = std::max(0.0, lengthOf(rStyle, u"padding-top", 0).value_or(0));
+        const double fPadding = fPadTop + std::max(0.0, lengthOf(rStyle, u"padding-bottom", 0).value_or(0));
+        const double fMarginTop = std::max(0.0, lengthOf(rStyle, u"margin-top", 0).value_or(0));
+        const double fMarginBottom = std::max(0.0, lengthOf(rStyle, u"margin-bottom", 0).value_or(0));
+        const LineMetrics aLine = lineMetricsOf(aFont, m_aRootFamily);
+        double fHeight = aLine.ascent + aLine.descent + fPadding + fBorders;
         switch (rNode.type)
         {
             case ControlType::Text:
@@ -1040,6 +1140,9 @@ private:
                 break;
             case ControlType::Date:
                 aService = u"com.sun.star.form.component.DateField"_ustr;
+                // A date picker is at least as tall as its calendar button (17px in InfoPath's stylesheet).
+                if (pProps && pProps->picker)
+                    fHeight = std::max(fHeight, px(17) + fPadding + fBorders);
                 break;
             case ControlType::Checkbox:
                 aService = u"com.sun.star.form.component.CheckBox"_ustr;
@@ -1175,10 +1278,19 @@ private:
         xShape->setControl(uno::Reference<awt::XControlModel>(xModel, uno::UNO_QUERY_THROW));
         uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY_THROW);
         xShapeProps->setPropertyValue(u"AnchorType"_ustr, uno::Any(text::TextContentAnchorType_AS_CHARACTER));
-        // A field's own text sits on the line's baseline in IE, so the box straddles the line rather than
-        // standing on it and making the line taller.
-        if (rNode.type != ControlType::Checkbox && rNode.type != ControlType::Radio)
+        if (rNode.type == ControlType::Button || rNode.type == ControlType::Placeholder)
             setIfPresent(xShapeProps, u"VertOrient"_ustr, uno::Any(text::VertOrientation::CHAR_CENTER));
+        else if (rNode.type != ControlType::Checkbox && rNode.type != ControlType::Radio)
+        {
+            // A field's own text sits on the line's baseline, as an inline block's first line does in IE: its top
+            // margin, border and padding stand above the text, the rest hangs below, and the line grows to hold
+            // both, margins included.
+            setIfPresent(xShapeProps, u"VertOrient"_ustr, uno::Any(text::VertOrientation::NONE));
+            setIfPresent(xShapeProps, u"VertOrientPosition"_ustr,
+                         uno::Any(static_cast<sal_Int32>(-std::lround(aLine.ascent + fPadTop + fBorderTop + fMarginTop))));
+            setIfPresent(xShapeProps, u"TopMargin"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(fMarginTop))));
+            setIfPresent(xShapeProps, u"BottomMargin"_ustr, uno::Any(static_cast<sal_Int32>(std::lround(fMarginBottom))));
+        }
         flushBreak(rTarget);
         rTarget.text->insertTextContent(rTarget.cursor, uno::Reference<text::XTextContent>(xShape, uno::UNO_QUERY_THROW), false);
         rTarget.paragraphUsed = true;
@@ -1189,6 +1301,8 @@ private:
     const RenderedView& m_rView;
     const PictureSource& m_rPictures;
     StyleCascade m_aCascade;
+    /** The paragraphs' font (the view's, else the document's), for fields that name none. */
+    OUString m_aRootFamily;
 };
 }
 
