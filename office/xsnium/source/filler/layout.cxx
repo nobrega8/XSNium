@@ -57,6 +57,7 @@
 #include <unotools/localedatawrapper.hxx>
 #include <unotools/syslocale.hxx>
 #include <tools/mapunit.hxx>
+#include <vcl/font/WinLineMetrics.hxx>
 #include <vcl/metric.hxx>
 #include <vcl/svapp.hxx>
 #include <vcl/virdev.hxx>
@@ -371,7 +372,7 @@ struct LineMetrics
     double descent = 0;
 };
 
-/** The font's own ascent and descent, measured at a high resolution so that no rounding to screen pixels creeps in. */
+/** The font's line metrics, measured at a high resolution so that no rounding to screen pixels creeps in. */
 LineMetrics exactLineMetricsOf(const OUString& rFamily, const CharFormat& rFormat)
 {
     SolarMutexGuard aGuard;
@@ -381,6 +382,9 @@ LineMetrics exactLineMetricsOf(const OUString& rFamily, const CharFormat& rForma
     vcl::Font aFont(rFamily, Size(0, static_cast<tools::Long>(std::lround(rFormat.height * MM100_PER_PT))));
     aFont.SetWeight(rFormat.bold ? WEIGHT_BOLD : WEIGHT_NORMAL);
     pDevice->SetFont(aFont);
+    // GDI's metrics, as IE (and Writer with PixelLineMetrics) uses them; else the font's usual ones.
+    if (tools::Long nAscent = 0, nDescent = 0; vcl::font::GetWinLineMetrics(*pDevice, nAscent, nDescent))
+        return { static_cast<double>(nAscent), static_cast<double>(nDescent) };
     const FontMetric aMetric = pDevice->GetFontMetric();
     if (aMetric.GetAscent() + aMetric.GetDescent() <= 0)
         return { rFormat.height * MM100_PER_PT * 0.95, rFormat.height * MM100_PER_PT * 0.25 };
@@ -446,6 +450,10 @@ public:
 
     void write()
     {
+        // Lines in whole pixels, as IE lays the form out, with the metrics fields use (lineMetricsOf).
+        uno::Reference<beans::XPropertySet> xSettings(m_xFactory->createInstance(u"com.sun.star.text.DocumentSettings"_ustr),
+                                                      uno::UNO_QUERY);
+        setIfPresent(xSettings, u"PixelLineMetrics"_ustr, uno::Any(true));
         const double fContentWidth = setUpPage();
         uno::Reference<text::XText> xBody = m_xDocument->getText();
         Target aBody{ xBody, xBody->createTextCursorByRange(xBody->getEnd()), fContentWidth, ParaFormat(), false, false };

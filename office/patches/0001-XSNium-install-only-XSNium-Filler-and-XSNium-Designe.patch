@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: nobrega8 <afonsognobrega@gmail.com>
 Date: Tue, 29 Sep 2026 15:32:56 +0100
-Subject: [PATCH 1/7] XSNium: install only XSNium Filler and XSNium Designer
+Subject: [PATCH 1/8] XSNium: install only XSNium Filler and XSNium Designer
 
 The installer script drops Base, Calc, Draw, Impress, Math, Python,
 extensions and the Office integration modules. The Start menu shows two

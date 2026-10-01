@@ -20,6 +20,7 @@
 #include <com/sun/star/form/XFormsSupplier.hpp>
 #include <com/sun/star/frame/XController.hpp>
 #include <com/sun/star/frame/XModel.hpp>
+#include <com/sun/star/lang/XMultiServiceFactory.hpp>
 #include <com/sun/star/lang/XServiceInfo.hpp>
 #include <com/sun/star/text/XTextDocument.hpp>
 #include <com/sun/star/table/XTableRows.hpp>
@@ -182,6 +183,16 @@ CPPUNIT_TEST_FIXTURE(FillerTest, testOnlyTheFieldsCanBeEdited)
     uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
     uno::Reference<view::XViewSettingsSupplier> xSupplier(xModel->getCurrentController(), uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT(property<bool>(xSupplier->getViewSettings(), u"FormView"_ustr));
+}
+
+/** Text lines are laid out in whole pixels, as IE lays the form out (patch 0008). */
+CPPUNIT_TEST_FIXTURE(FillerTest, testLinesAreWholePixels)
+{
+    loadTemplate(sampleXsnBytes());
+    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
+    uno::Reference<beans::XPropertySet> xSettings(xFactory->createInstance(u"com.sun.star.text.DocumentSettings"_ustr),
+                                                  uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT(property<bool>(xSettings, u"PixelLineMetrics"_ustr));
 }
 
 /**

@@ -1,0 +1,333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nobrega8 <afonsognobrega@gmail.com>
+Date: Thu, 1 Oct 2026 13:34:51 +0100
+Subject: [PATCH 8/8] XSNium: lay text lines out in whole pixels, as IE does
+
+Internet Explorer lays out InfoPath forms in whole pixels at 96 DPI,
+with GDI's line metrics: the font's OS/2 win ascent and descent, no
+leading, the font's size rounded to pixels and then the ascent and
+descent. Writer's metrics make each line a fraction of a pixel taller
+or shorter (Calibri 9pt: 14.67px against IE's 14px), and a form drifts
+from its design by several pixels.
+
+The PixelLineMetrics document setting (off by default) makes Writer
+measure lines that way. vcl::font::GetWinLineMetrics gives the win
+ascent and descent, which VCL's FontMetric does not expose.
+
+Change-Id: Ic0e1b6887facedb49fedcfcfc0d2994b41755645
+---
+ include/vcl/font/WinLineMetrics.hxx           | 29 +++++++++++
+ sw/inc/IDocumentSettingAccess.hxx             |  2 +
+ sw/source/core/doc/DocumentSettingManager.cxx |  6 +++
+ sw/source/core/inc/DocumentSettingManager.hxx |  1 +
+ sw/source/core/inc/fntcache.hxx               |  5 ++
+ sw/source/core/txtnode/fntcache.cxx           | 51 +++++++++++++++++++
+ sw/source/uibase/uno/SwXDocumentSettings.cxx  | 13 +++++
+ vcl/source/outdev/font.cxx                    | 27 ++++++++++
+ 8 files changed, 134 insertions(+)
+ create mode 100644 include/vcl/font/WinLineMetrics.hxx
+
+diff --git a/include/vcl/font/WinLineMetrics.hxx b/include/vcl/font/WinLineMetrics.hxx
+new file mode 100644
+index 000000000..b400d202d
+--- /dev/null
++++ b/include/vcl/font/WinLineMetrics.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <vcl/dllapi.h>
++#include <tools/long.hxx>
++
++class OutputDevice;
++
++namespace vcl::font
++{
++/**
++ * XSNium: the ascent and descent Windows' GDI gives the device's current font (TEXTMETRIC's tmAscent and
++ * tmDescent, from the OS/2 table's usWinAscent and usWinDescent), in the device's logic units. Internet Explorer
++ * lays out lines with these, where VCL's FontMetric prefers the hhea or typo metrics. False when the font has no
++ * such metrics.
++ */
++VCL_DLLPUBLIC bool GetWinLineMetrics(const OutputDevice& rDevice, tools::Long& rAscent,
++                                     tools::Long& rDescent);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/inc/IDocumentSettingAccess.hxx b/sw/inc/IDocumentSettingAccess.hxx
+index 8e99f7be4..5dc6f3e2d 100644
+--- a/sw/inc/IDocumentSettingAccess.hxx
++++ b/sw/inc/IDocumentSettingAccess.hxx
+@@ -156,6 +156,8 @@ enum class DocumentSettingId
+     ADJUST_TABLE_LINE_HEIGHTS_TO_GRID_HEIGHT,
+     // tdf#72640 treat list label alignment as literal left/right, rather than start/end
+     LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION,
++    // XSNium: lay text lines out in whole pixels at 96 DPI, as Internet Explorer does for InfoPath forms
++    PIXEL_LINE_METRICS,
+ };
+ 
+ /** Provides access to settings of a document
+diff --git a/sw/source/core/doc/DocumentSettingManager.cxx b/sw/source/core/doc/DocumentSettingManager.cxx
+index 638c1bdee..9f94144e2 100644
+--- a/sw/source/core/doc/DocumentSettingManager.cxx
++++ b/sw/source/core/doc/DocumentSettingManager.cxx
+@@ -301,6 +301,8 @@ bool sw::DocumentSettingManager::get(/*[in]*/ DocumentSettingId id) const
+             return mbAdjustTableLineHeightsToGridHeight;
+         case DocumentSettingId::LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION:
+             return mbListLabelAlignmentIgnoresDirection;
++        case DocumentSettingId::PIXEL_LINE_METRICS:
++            return mbPixelLineMetrics;
+         default:
+             OSL_FAIL("Invalid setting id");
+     }
+@@ -657,6 +659,9 @@ void sw::DocumentSettingManager::set(/*[in]*/ DocumentSettingId id, /*[in]*/ boo
+         case DocumentSettingId::LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION:
+             mbListLabelAlignmentIgnoresDirection = value;
+             break;
++        case DocumentSettingId::PIXEL_LINE_METRICS:
++            mbPixelLineMetrics = value;
++            break;
+         default:
+             OSL_FAIL("Invalid setting id");
+     }
+@@ -862,6 +867,7 @@ void sw::DocumentSettingManager::ReplaceCompatibilityOptions(const DocumentSetti
+     mbForceTopAlignmentInCellWithFloatingAnchor = rSource.mbForceTopAlignmentInCellWithFloatingAnchor;
+     mbAdjustTableLineHeightsToGridHeight = rSource.mbAdjustTableLineHeightsToGridHeight;
+     mbListLabelAlignmentIgnoresDirection = rSource.mbListLabelAlignmentIgnoresDirection;
++    mbPixelLineMetrics = rSource.mbPixelLineMetrics;
+ }
+ 
+ sal_uInt32 sw::DocumentSettingManager::Getn32DummyCompatibilityOptions1() const
+diff --git a/sw/source/core/inc/DocumentSettingManager.hxx b/sw/source/core/inc/DocumentSettingManager.hxx
+index 37d007e25..0cc3e0a2b 100644
+--- a/sw/source/core/inc/DocumentSettingManager.hxx
++++ b/sw/source/core/inc/DocumentSettingManager.hxx
+@@ -198,6 +198,7 @@ class DocumentSettingManager final :
+     bool mbForceTopAlignmentInCellWithFloatingAnchor : 1 = false; // tdf#37153
+     bool mbAdjustTableLineHeightsToGridHeight : 1 = true; // tdf#167583
+     bool mbListLabelAlignmentIgnoresDirection : 1 = false; // tdf#72640
++    bool mbPixelLineMetrics : 1 = false; // XSNium
+ 
+ public:
+ 
+diff --git a/sw/source/core/inc/fntcache.hxx b/sw/source/core/inc/fntcache.hxx
+index fe35f9afa..e97799eb2 100644
+--- a/sw/source/core/inc/fntcache.hxx
++++ b/sw/source/core/inc/fntcache.hxx
+@@ -76,6 +76,9 @@ class SwFntObj final : public SwCacheObj
+     sal_uInt16 m_nPropWidth;
+     sal_uInt16 m_nScrHangingBaseline;
+     sal_uInt16 m_nPrtHangingBaseline;
++    /// XSNium: the ascent and descent GDI gives the printer font (see GetPixelLineMetrics)
++    sal_uInt16 m_nPrtWinAscent = USHRT_MAX;
++    sal_uInt16 m_nPrtWinDescent = USHRT_MAX;
+     sal_uInt16 m_nZoom;
+     bool m_bSymbol : 1;
+     bool m_bPaintBlank : 1;
+@@ -103,6 +106,8 @@ public:
+     sal_uInt16 GetFontHeight( const SwViewShell *pSh, const OutputDevice& rOut );
+     sal_uInt16 GetFontLeading( const SwViewShell *pSh, const OutputDevice& rOut );
+     sal_uInt16 GetFontHangingBaseline( const SwViewShell *pSh, const OutputDevice& rOut );
++    /// XSNium: the ascent and height of a line in whole pixels, if the document asks for it (PIXEL_LINE_METRICS)
++    bool GetPixelLineMetrics( const SwViewShell *pSh, const OutputDevice& rOut, sal_uInt16& rAscent, sal_uInt16& rHeight );
+     bool GetFontHasCJKCodePages(const SwViewShell* pSh, const OutputDevice& rOut);
+ 
+     void GuessLeading( const SwViewShell& rSh, const FontMetric& rMet );
+diff --git a/sw/source/core/txtnode/fntcache.cxx b/sw/source/core/txtnode/fntcache.cxx
+index b16d5ff04..0077533aa 100644
+--- a/sw/source/core/txtnode/fntcache.cxx
++++ b/sw/source/core/txtnode/fntcache.cxx
+@@ -39,6 +39,7 @@
+ #include <viewopt.hxx>
+ #include <fntcache.hxx>
+ #include <IDocumentSettingAccess.hxx>
++#include <vcl/font/WinLineMetrics.hxx>
+ #include <swfont.hxx>
+ #include <wrong.hxx>
+ #include <txtfrm.hxx>
+@@ -57,6 +58,8 @@
+ #include <fntcap.hxx>
+ #include <vcl/outdev/ScopedStates.hxx>
+ #include <o3tl/hash_combine.hxx>
++#include <algorithm>
++#include <cmath>
+ #include <cstdint>
+ #include <memory>
+ #include "justify.hxx"
+@@ -311,6 +314,48 @@ bool SwFntObj::GetFontHasCJKCodePages(const SwViewShell* pSh, const OutputDevice
+     }
+ }
+ 
++/*
++ * XSNium: Internet Explorer lays out the InfoPath forms XSNium shows in whole pixels at 96 DPI, with the line
++ * metrics of GDI (the font's OS/2 win ascent and descent, no leading). It rounds the font's size to pixels, then
++ * its ascent and descent: Calibri 10pt is 13px, a line of 12 + 3, where Writer's metrics give 16.3px. Lines
++ * laid out with Writer's metrics drift from the form's design by a fraction of a pixel each.
++ */
++bool SwFntObj::GetPixelLineMetrics( const SwViewShell *pSh, const OutputDevice& rOut, sal_uInt16& rAscent,
++                                    sal_uInt16& rHeight )
++{
++    if ( !pSh || !pSh->getIDocumentSettingAccess().get( DocumentSettingId::PIXEL_LINE_METRICS ) )
++        return false;
++    const OutputDevice& rRefDev = pSh->GetRefDev();
++    if ( m_nPrtWinAscent == USHRT_MAX )
++    {
++        CreatePrtFont( rOut );
++        const vcl::Font aOldFnt( rRefDev.GetFont() );
++        const_cast<OutputDevice&>(rRefDev).SetFont( *m_pPrtFont );
++        tools::Long nAscent = 0, nDescent = 0;
++        if ( !vcl::font::GetWinLineMetrics( rRefDev, nAscent, nDescent ) )
++        {
++            // No win metrics: the font's usual ones, without leading.
++            const FontMetric aOutMet( rRefDev.GetFontMetric() );
++            nAscent = aOutMet.GetAscent();
++            nDescent = aOutMet.GetDescent();
++        }
++        m_nPrtWinAscent = o3tl::narrowing<sal_uInt16>( nAscent );
++        m_nPrtWinDescent = o3tl::narrowing<sal_uInt16>( nDescent );
++        const_cast<OutputDevice&>(rRefDev).SetFont( aOldFnt );
++    }
++    constexpr double TWIPS_PER_PIXEL = 15; // at 96 DPI
++    const double fSize = m_aFont.GetFontSize().Height() / TWIPS_PER_PIXEL;
++    if ( fSize <= 0 )
++        return false;
++    const double fScale = std::max( 1.0, std::round( fSize ) ) / fSize;
++    const auto pixels = [&]( double fTwips ) { return std::round( fTwips / TWIPS_PER_PIXEL * fScale ); };
++    const double fAscent = pixels( m_nPrtWinAscent );
++    const double fDescent = pixels( m_nPrtWinDescent );
++    rAscent = o3tl::narrowing<sal_uInt16>( fAscent * TWIPS_PER_PIXEL );
++    rHeight = o3tl::narrowing<sal_uInt16>( ( fAscent + fDescent ) * TWIPS_PER_PIXEL );
++    return true;
++}
++
+ // Returns the Ascent of the Font on the given output device;
+ // it may be necessary to create the screen font first.
+ sal_uInt16 SwFntObj::GetFontAscent( const SwViewShell *pSh, const OutputDevice& rOut )
+@@ -318,6 +363,9 @@ sal_uInt16 SwFntObj::GetFontAscent( const SwViewShell *pSh, const OutputDevice&
+     sal_uInt16 nRet = 0;
+     const OutputDevice& rRefDev = pSh ? pSh->GetRefDev() : rOut;
+ 
++    if ( sal_uInt16 nHeight; GetPixelLineMetrics( pSh, rOut, nRet, nHeight ) )
++        return nRet;
++
+     if ( pSh && lcl_IsFontAdjustNecessary( rOut, rRefDev ) )
+     {
+         CreateScrFont( *pSh, rOut );
+@@ -356,6 +404,9 @@ sal_uInt16 SwFntObj::GetFontHeight( const SwViewShell* pSh, const OutputDevice&
+     sal_uInt16 nRet = 0;
+     const OutputDevice& rRefDev = pSh ? pSh->GetRefDev() : rOut;
+ 
++    if ( sal_uInt16 nAscent; GetPixelLineMetrics( pSh, rOut, nAscent, nRet ) )
++        return nRet;
++
+     if ( pSh && lcl_IsFontAdjustNecessary( rOut, rRefDev ) )
+     {
+         CreateScrFont( *pSh, rOut );
+diff --git a/sw/source/uibase/uno/SwXDocumentSettings.cxx b/sw/source/uibase/uno/SwXDocumentSettings.cxx
+index 05c76612b..f464aed74 100644
+--- a/sw/source/uibase/uno/SwXDocumentSettings.cxx
++++ b/sw/source/uibase/uno/SwXDocumentSettings.cxx
+@@ -175,6 +175,7 @@ enum SwDocumentSettingsPropertyHandles
+     HANDLE_FORCE_TOP_ALIGNMENT_IN_CELL_WITH_FLOATING_ANCHOR,
+     HANDLE_ADJUST_TABLE_LINE_HEIGHTS_TO_GRID_HEIGHT,
+     HANDLE_LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION,
++    HANDLE_PIXEL_LINE_METRICS,
+ };
+ 
+ }
+@@ -296,6 +297,7 @@ static rtl::Reference<MasterPropertySetInfo> lcl_createSettingsInfo()
+         { u"ForceTopAlignmentInCellWithFloatingAnchor"_ustr, HANDLE_FORCE_TOP_ALIGNMENT_IN_CELL_WITH_FLOATING_ANCHOR, cppu::UnoType<bool>::get(), 0 },
+         { u"AdjustTableLineHeightsToGridHeight"_ustr, HANDLE_ADJUST_TABLE_LINE_HEIGHTS_TO_GRID_HEIGHT, cppu::UnoType<bool>::get(), 0 },
+         { u"ListLabelAlignmentIgnoresDirection"_ustr, HANDLE_LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION, cppu::UnoType<bool>::get(), 0 },
++        { u"PixelLineMetrics"_ustr, HANDLE_PIXEL_LINE_METRICS, cppu::UnoType<bool>::get(), 0 },
+ 
+ /*
+  * As OS said, we don't have a view when we need to set this, so I have to
+@@ -1287,6 +1289,12 @@ void SwXDocumentSettings::_setSingleValue( const comphelper::PropertyInfo & rInf
+                     DocumentSettingId::LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION, bTmp);
+             }
+             break;
++        case HANDLE_PIXEL_LINE_METRICS:
++            if (bool bTmp; rValue >>= bTmp)
++            {
++                mpDoc->getIDocumentSettingAccess().set(DocumentSettingId::PIXEL_LINE_METRICS, bTmp);
++            }
++            break;
+         default:
+             throw UnknownPropertyException(OUString::number(rInfo.mnHandle));
+     }
+@@ -1944,6 +1952,11 @@ void SwXDocumentSettings::_getSingleValue( const comphelper::PropertyInfo & rInf
+             rValue <<= mpDoc->getIDocumentSettingAccess().get(DocumentSettingId::LIST_LABEL_ALIGNMENT_IGNORES_DIRECTION);
+         }
+         break;
++        case HANDLE_PIXEL_LINE_METRICS:
++        {
++            rValue <<= mpDoc->getIDocumentSettingAccess().get(DocumentSettingId::PIXEL_LINE_METRICS);
++        }
++        break;
+         default:
+             throw UnknownPropertyException(OUString::number(rInfo.mnHandle));
+     }
+diff --git a/vcl/source/outdev/font.cxx b/vcl/source/outdev/font.cxx
+index 4f62ebcaa..d09f99cf5 100644
+--- a/vcl/source/outdev/font.cxx
++++ b/vcl/source/outdev/font.cxx
+@@ -29,6 +29,7 @@
+ #include <unotools/fontdefs.hxx>
+ 
+ #include <vcl/event.hxx>
++#include <vcl/font/WinLineMetrics.hxx>
+ #include <vcl/fontcharmap.hxx>
+ #include <vcl/fntstyle.hxx>
+ #include <vcl/glyphitem.hxx>
+@@ -53,11 +54,14 @@
+ #include <font/PhysicalFontFaceCollection.hxx>
+ #include <font/PhysicalFontCollection.hxx>
+ #include <font/FeatureCollector.hxx>
++#include <font/LogicalFontInstance.hxx>
+ #include <impglyphitem.hxx>
+ #include <sallayout.hxx>
+ #include <salgdi.hxx>
+ #include <svdata.hxx>
+ 
++#include <hb-ot.h>
++#include <cmath>
+ #include <unicode/uchar.h>
+ 
+ #include <strings.hrc>
+@@ -1458,4 +1462,27 @@ void OutputDevice::ImplReleaseFonts()
+     mpFontFaceCollection.reset();
+ }
+ 
++bool vcl::font::GetWinLineMetrics(const OutputDevice& rDevice, tools::Long& rAscent, tools::Long& rDescent)
++{
++    LogicalFontInstance* pInstance = const_cast<LogicalFontInstance*>(rDevice.GetFontInstance());
++    if (!pInstance)
++        return false;
++    hb_font_t* pHbFont = pInstance->GetHbFont();
++    hb_position_t nAscent = 0, nDescent = 0;
++    if (!pHbFont
++        || !hb_ot_metrics_get_position(pHbFont, HB_OT_METRICS_TAG_HORIZONTAL_CLIPPING_ASCENT, &nAscent)
++        || !hb_ot_metrics_get_position(pHbFont, HB_OT_METRICS_TAG_HORIZONTAL_CLIPPING_DESCENT, &nDescent))
++        return false;
++    double fScale = 0;
++    pInstance->GetScale(nullptr, &fScale);
++    // As FontMetricData::ImplCalcLineSpacing: font units to device pixels, then to the device's logic units.
++    const Size aLogic = rDevice.PixelToLogic(
++        Size(0, static_cast<tools::Long>(std::round(std::abs(nAscent) * fScale))));
++    const Size aLogicDescent = rDevice.PixelToLogic(
++        Size(0, static_cast<tools::Long>(std::round(std::abs(nDescent) * fScale))));
++    rAscent = aLogic.Height();
++    rDescent = aLogicDescent.Height();
++    return rAscent + rDescent > 0;
++}
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */

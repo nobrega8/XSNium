@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: nobrega8 <afonsognobrega@gmail.com>
 Date: Tue, 29 Sep 2026 15:54:51 +0100
-Subject: [PATCH 3/7] XSNium: product entry and MSI codes for the installer
+Subject: [PATCH 3/8] XSNium: product entry and MSI codes for the installer
 
 Add an XSNium product to openoffice.lst with its own install folder,
 registry layer and download name, and its own MSI product and upgrade
